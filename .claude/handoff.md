@@ -30,13 +30,41 @@ api.upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type=
 ```
 (Must run from the hyperspace-jam-v2-clean directory, which has the actual files without LFS)
 
-## What's Next
-- Test current deploy, fix any JS errors
-- More diverse controls: each finger mapped to different parameters
-- Geometry-to-music feedback: mandala shape properties (area, symmetry) influence audio
-- Attract mode logic (30s timer, sine-wave shader animation when idle)
-- Scale toggle button wiring (PENTATONIC/MIXOLYDIAN)
-- GitHub repo for the v2 code (currently only on HF Spaces)
+## What's Next — PHASE 3: Dynamic Geometric Shapes + Internal Tessellation
+
+See `.claude/vision-reference.md` for the full interaction spec (from Instagram reel analysis).
+
+### Priority 1: Pinch Detection + Dynamic Shape State
+- Detect pinch gesture (thumb tip + index tip distance < threshold)
+- Merge pinched fingers into single anchor point
+- Track active anchor count → determine shape state (line/triangle/quad)
+- Smooth transitions between states
+
+### Priority 2: Internal Poincaré Tessellation Inside Shapes
+- When a closed shape forms, fill its interior with a Poincaré disk shader
+- Use a second ShaderMaterial on a dynamic mesh that conforms to the shape
+- Central focal point, tessellation gets denser toward edges
+- Re-tessellate in real-time as shape morphs
+
+### Priority 3: DMT-Chrome Iridescent Coloring
+- Shifting iridescent colors flowing along curved geometry
+- Pulsation rhythm synced to audio beat
+- Color intensity increases with finger spread
+
+### Priority 4: Z-Depth Rendering
+- Line thickness scales with hand Z-position (landmark.z or hand size proxy)
+- Node size scales similarly
+- Creates convincing 3D perspective effect
+
+### Priority 5: Audio-Geometry Feedback
+- Shape proximity to camera → distortion/low-pass filter on master bus
+- Shape area/complexity → additional audio parameters
+- Pulsation sync with Transport beat
+
+### Also remaining:
+- Attract mode logic (30s timer)
+- Scale toggle button wiring
+- Per-finger controls are implemented but need testing post-bug-fix
 
 ## Key Files
 | File | Purpose |
