@@ -13,6 +13,7 @@ uniform float u_time;
 uniform float u_amplitude;
 uniform vec2 u_resolution;
 uniform vec3 u_color;
+uniform float u_breathe;
 
 vec2 cmul(vec2 a, vec2 b) {
     return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
@@ -44,6 +45,9 @@ vec2 rot(vec2 p, float a) {
 
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+
+    // Texture breathing: subtle scale pulsation independent of audio
+    uv *= 1.0 + 0.05 * (u_breathe - 0.5);
 
     float breathe = 1.0 + 0.15 * u_amplitude;
     uv *= 1.1 * breathe;
@@ -94,12 +98,17 @@ void main() {
     vec3 color = mix(col1, col2, sin(iter * 0.7 + u_time * 0.1) * 0.5 + 0.5);
     color = mix(color, col3, sin(iter * 1.1 - u_time * 0.15) * 0.5 + 0.5);
 
+    // Breathe-modulated saturation
+    float sat = 0.85 + 0.15 * u_breathe;
+    color *= sat;
+
     // Tint toward the hand-gesture color
     float satBoost = 0.3 + 0.2 * u_amplitude;
     color = mix(color, u_color * 0.15, satBoost * 0.3);
 
     // Edge highlights with glow from amplitude
-    float edgeLine = 1.0 - smoothstep(0.0, 0.04 - 0.02 * u_amplitude, abs(fract(d * 1.5) - 0.5) - 0.45);
+    float edgeThreshold = (0.04 - 0.02 * u_amplitude) * (1.0 + 0.3 * u_breathe);
+    float edgeLine = 1.0 - smoothstep(0.0, edgeThreshold, abs(fract(d * 1.5) - 0.5) - 0.45);
     color += vec3(0.06, 0.08, 0.14) * edgeLine * (1.0 + u_amplitude);
 
     // Sector pattern
@@ -133,7 +142,8 @@ export class WaveformVisualizer {
             u_time: { value: 0.0 },
             u_amplitude: { value: 0.0 },
             u_resolution: { value: new THREE.Vector2(canvasWidth, canvasHeight) },
-            u_color: { value: this.currentColor }
+            u_color: { value: this.currentColor },
+            u_breathe: { value: 0 }
         };
 
         this._createVisualizer();
@@ -173,6 +183,10 @@ export class WaveformVisualizer {
         }
         var amplitude = Math.sqrt(sum / waveformData.length);
         this.uniforms.u_amplitude.value = amplitude;
+        this.lastAmplitude = amplitude;
+
+        var breathe = 0.5 + 0.5 * Math.sin(this.uniforms.u_time.value * 2.094); // ~3 second cycle
+        this.uniforms.u_breathe.value = breathe;
     }
 
     updateColor(newColor) {

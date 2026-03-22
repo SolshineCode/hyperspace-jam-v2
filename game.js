@@ -223,6 +223,8 @@ import * as Tone from 'https://esm.sh/tone'; // Import Tone to access Transport
 import * as drumManager from './DrumManager.js'; // Import the new drum manager module
 import { WaveformVisualizer } from './WaveformVisualizer.js'; // Import the new waveform visualizer
 import { MandalaVisualizer } from './MandalaVisualizer.js';
+import { ShapeManager } from './ShapeManager.js';
+import { DisplacementFilter } from './DisplacementFilter.js';
 export var Game = /*#__PURE__*/ function() {
     "use strict";
     function Game(renderDiv) {
@@ -447,6 +449,13 @@ export var Game = /*#__PURE__*/ function() {
                 this.renderer.domElement.style.zIndex = '1'; // Canvas on top of video
                 this.renderer.domElement.style.mixBlendMode = 'screen';
                 this.renderDiv.appendChild(this.renderer.domElement);
+                this.displacementFilter = new DisplacementFilter(this.renderer.domElement, this.videoElement);
+                var gameRef = this;
+                window.addEventListener('keydown', function(e) {
+                    if (e.code === 'KeyD') {
+                        if (gameRef.displacementFilter) gameRef.displacementFilter.toggle();
+                    }
+                });
                 var ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
                 this.scene.add(ambientLight);
                 var directionalLight = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -983,6 +992,7 @@ export var Game = /*#__PURE__*/ function() {
                         _this.waveformVisualizer = new WaveformVisualizer(_this.scene, analyser, _this.renderDiv.clientWidth, _this.renderDiv.clientHeight);
                     }
                     _this.mandalaVisualizer = new MandalaVisualizer(_this.scene);
+                    _this.shapeManager = new ShapeManager(_this.scene);
                 });
                 this.gameState = 'tracking'; // Changed from 'playing'
                 this.lastVideoTime = -1;
@@ -1346,6 +1356,16 @@ export var Game = /*#__PURE__*/ function() {
                     if (this.mandalaVisualizer) {
                         var mandalaHands = this.hands.map(function(h) { return h.points3D || null; }).filter(Boolean);
                         this.mandalaVisualizer.update(mandalaHands, 0, 0);
+                    }
+                    if (this.shapeManager) {
+                        var shapeHands = this.hands.map(function(h) { return h.points3D || null; }).filter(Boolean);
+                        var cw = this.renderDiv.clientWidth;
+                        var ch = this.renderDiv.clientHeight;
+                        this.shapeManager.update(shapeHands, cw, ch);
+                    }
+                    if (this.displacementFilter) {
+                        var dispAmplitude = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
+                        this.displacementFilter.update(dispAmplitude, []);
                     }
                 }
                 this.renderer.render(this.scene, this.camera);
