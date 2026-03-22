@@ -222,6 +222,7 @@ import { MusicManager } from './MusicManager.js'; // Import the MusicManager
 import * as Tone from 'https://esm.sh/tone'; // Import Tone to access Transport
 import * as drumManager from './DrumManager.js'; // Import the new drum manager module
 import { WaveformVisualizer } from './WaveformVisualizer.js'; // Import the new waveform visualizer
+import { MandalaVisualizer } from './MandalaVisualizer.js';
 export var Game = /*#__PURE__*/ function() {
     "use strict";
     function Game(renderDiv) {
@@ -379,12 +380,18 @@ export var Game = /*#__PURE__*/ function() {
                 this.videoElement.style.height = '100%';
                 this.videoElement.style.objectFit = 'cover';
                 this.videoElement.style.transform = 'scaleX(-1)'; // Mirror view for intuitive control
-                this.videoElement.style.filter = 'grayscale(100%)'; // Make it black and white
+                this.videoElement.style.filter = 'saturate(1.8) contrast(1.2) hue-rotate(0deg)';
                 this.videoElement.autoplay = true;
                 this.videoElement.muted = true; // Mute video to avoid feedback loops if audio was captured
                 this.videoElement.playsInline = true;
                 this.videoElement.style.zIndex = '0'; // Ensure video is behind THREE canvas
                 this.renderDiv.appendChild(this.videoElement);
+                // Psychedelic hue rotation on the webcam feed
+                var hueAngle = 0;
+                setInterval(function() {
+                    hueAngle = (hueAngle + 0.5) % 360;
+                    _this.videoElement.style.filter = 'saturate(1.8) contrast(1.2) hue-rotate(' + hueAngle + 'deg)';
+                }, 50);
                 // Container for Status text (formerly Game Over) and restart hint
                 this.gameOverContainer = document.createElement('div');
                 this.gameOverContainer.style.position = 'absolute';
@@ -437,6 +444,7 @@ export var Game = /*#__PURE__*/ function() {
                 this.renderer.domElement.style.top = '0';
                 this.renderer.domElement.style.left = '0';
                 this.renderer.domElement.style.zIndex = '1'; // Canvas on top of video
+                this.renderer.domElement.style.mixBlendMode = 'screen';
                 this.renderDiv.appendChild(this.renderer.domElement);
                 var ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
                 this.scene.add(ambientLight);
@@ -944,6 +952,7 @@ export var Game = /*#__PURE__*/ function() {
                     if (analyser) {
                         _this.waveformVisualizer = new WaveformVisualizer(_this.scene, analyser, _this.renderDiv.clientWidth, _this.renderDiv.clientHeight);
                     }
+                    _this.mandalaVisualizer = new MandalaVisualizer(_this.scene);
                 });
                 this.gameState = 'tracking'; // Changed from 'playing'
                 this.lastVideoTime = -1;
@@ -1198,6 +1207,7 @@ export var Game = /*#__PURE__*/ function() {
                     var y = (1 - normY_visible) * canvasHeight - canvasHeight / 2;
                     return new THREE.Vector3(x, y, 1.1); // Z for fingertip circles
                 });
+                hand.points3D = points3D;
                 // --- Draw Skeleton Lines ---
                 var lineZ = 1;
                 this.handConnections.forEach(function(conn) {
@@ -1302,6 +1312,10 @@ export var Game = /*#__PURE__*/ function() {
                     this._updateBeatIndicator();
                     if (this.waveformVisualizer) {
                         this.waveformVisualizer.update();
+                    }
+                    if (this.mandalaVisualizer) {
+                        var mandalaHands = this.hands.map(function(h) { return h.points3D || null; }).filter(Boolean);
+                        this.mandalaVisualizer.update(mandalaHands, 0, 0);
                     }
                 }
                 this.renderer.render(this.scene, this.camera);

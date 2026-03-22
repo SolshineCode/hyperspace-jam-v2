@@ -1,155 +1,193 @@
-function _class_call_check(instance, Constructor) {
-    if (!(instance instanceof Constructor)) {
-        throw new TypeError("Cannot call a class as a function");
-    }
-}
-function _defineProperties(target, props) {
-    for(var i = 0; i < props.length; i++){
-        var descriptor = props[i];
-        descriptor.enumerable = descriptor.enumerable || false;
-        descriptor.configurable = true;
-        if ("value" in descriptor) descriptor.writable = true;
-        Object.defineProperty(target, descriptor.key, descriptor);
-    }
-}
-function _create_class(Constructor, protoProps, staticProps) {
-    if (protoProps) _defineProperties(Constructor.prototype, protoProps);
-    if (staticProps) _defineProperties(Constructor, staticProps);
-    return Constructor;
-}
-function _instanceof(left, right) {
-    if (right != null && typeof Symbol !== "undefined" && right[Symbol.hasInstance]) {
-        return !!right[Symbol.hasInstance](left);
-    } else {
-        return left instanceof right;
-    }
-}
 import * as THREE from 'three';
-// A class to create and manage a waveform visualizer using Tone.Analyser
-export var WaveformVisualizer = /*#__PURE__*/ function() {
-    "use strict";
-    function WaveformVisualizer(scene, analyser, canvasWidth, canvasHeight) {
-        _class_call_check(this, WaveformVisualizer);
+
+const vertexShader = `
+void main() {
+    gl_Position = vec4(position.xy, 0.0, 1.0);
+}
+`;
+
+const fragmentShader = `
+precision highp float;
+
+uniform float u_time;
+uniform float u_amplitude;
+uniform vec2 u_resolution;
+uniform vec3 u_color;
+
+vec2 cmul(vec2 a, vec2 b) {
+    return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+vec2 cdiv(vec2 a, vec2 b) {
+    float d = dot(b, b);
+    return vec2(dot(a, b), a.y * b.x - a.x * b.y) / d;
+}
+
+vec2 conj(vec2 z) {
+    return vec2(z.x, -z.y);
+}
+
+vec2 mobius(vec2 z, vec2 a) {
+    return cdiv(z - a, vec2(1.0, 0.0) - cmul(conj(a), z));
+}
+
+float hdist(vec2 z) {
+    float r = length(z);
+    if (r >= 1.0) return 10.0;
+    return log((1.0 + r) / (1.0 - r));
+}
+
+vec2 rot(vec2 p, float a) {
+    float c = cos(a), s = sin(a);
+    return vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+
+void main() {
+    vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+
+    float breathe = 1.0 + 0.15 * u_amplitude;
+    uv *= 1.1 * breathe;
+
+    float r = length(uv);
+
+    if (r >= 1.0) {
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    float rotSpeed = 0.08 + 0.05 * u_amplitude;
+    uv = rot(uv, u_time * rotSpeed);
+
+    float n = 7.0;
+    float angleStep = 6.283185 / n;
+
+    float coshR = cos(3.14159265 / 3.0) / sin(3.14159265 / n);
+    float sinhR = sqrt(coshR * coshR - 1.0);
+    float tr = sinhR / (coshR + 1.0);
+
+    vec2 z = uv;
+    float iter = 0.0;
+
+    for (int i = 0; i < 40; i++) {
+        float ang = atan(z.y, z.x);
+        float sector = floor(ang / angleStep + 0.5) * angleStep;
+
+        z = rot(z, -sector);
+        iter += abs(sector) > 0.01 ? 1.0 : 0.0;
+
+        vec2 center = vec2(tr, 0.0);
+        vec2 w = mobius(z, center);
+
+        if (length(w) >= length(z) - 0.0001) break;
+        z = w;
+        iter += 1.0;
+    }
+
+    float d = hdist(z);
+
+    // Color palette: deep purples, teals, magentas — psychedelic but dark
+    float t = mod(iter * 0.1 + u_time * 0.02, 1.0);
+    vec3 col1 = vec3(0.03, 0.01, 0.08); // deep purple-black
+    vec3 col2 = vec3(0.02, 0.10, 0.15); // dark teal
+    vec3 col3 = vec3(0.12, 0.02, 0.10); // dark magenta
+
+    vec3 color = mix(col1, col2, sin(iter * 0.7 + u_time * 0.1) * 0.5 + 0.5);
+    color = mix(color, col3, sin(iter * 1.1 - u_time * 0.15) * 0.5 + 0.5);
+
+    // Tint toward the hand-gesture color
+    float satBoost = 0.3 + 0.2 * u_amplitude;
+    color = mix(color, u_color * 0.15, satBoost * 0.3);
+
+    // Edge highlights with glow from amplitude
+    float edgeLine = 1.0 - smoothstep(0.0, 0.04 - 0.02 * u_amplitude, abs(fract(d * 1.5) - 0.5) - 0.45);
+    color += vec3(0.06, 0.08, 0.14) * edgeLine * (1.0 + u_amplitude);
+
+    // Sector pattern
+    float ang = atan(z.y, z.x);
+    float sectorPattern = smoothstep(0.02, 0.04, abs(sin(ang * n * 0.5)));
+    color *= 0.7 + 0.3 * sectorPattern;
+
+    // Audio reactive brightness
+    color *= 0.8 + 0.25 * u_amplitude;
+
+    // Disk edge fade
+    float diskEdge = smoothstep(0.98, 0.92, r);
+    color *= diskEdge;
+
+    color = min(color, vec3(1.0));
+
+    gl_FragColor = vec4(color, 0.45);
+}
+`;
+
+export class WaveformVisualizer {
+    constructor(scene, analyser, canvasWidth, canvasHeight) {
         this.scene = scene;
         this.analyser = analyser;
         this.mesh = null;
-        this.bufferLength = this.analyser.size;
-        this.dataArray = new Float32Array(this.bufferLength);
-        this.smoothedDataArray = new Float32Array(this.bufferLength); // For smoothing
-        // Visual properties
-        this.smoothingFactor = 0.4; // How much to smooth the wave (0.0 - 1.0)
-        this.width = canvasWidth * 0.8; // Occupy 80% of the screen width
-        this.height = 450; // The vertical amplitude of the wave
-        this.yPosition = 0; // The vertical center of the wave
-        this.thickness = 30.0; // The thickness of the line mesh
+        this.clock = new THREE.Clock();
         this.currentColor = new THREE.Color('#7B4394');
         this.targetColor = new THREE.Color('#7B4394');
+
         this.uniforms = {
-            solidColor: {
-                value: this.currentColor
-            }
+            u_time: { value: 0.0 },
+            u_amplitude: { value: 0.0 },
+            u_resolution: { value: new THREE.Vector2(canvasWidth, canvasHeight) },
+            u_color: { value: this.currentColor }
         };
+
         this._createVisualizer();
     }
-    _create_class(WaveformVisualizer, [
-        {
-            key: "_createVisualizer",
-            value: function _createVisualizer() {
-                var material = new THREE.ShaderMaterial({
-                    uniforms: this.uniforms,
-                    vertexShader: "\n                varying vec2 vUv;\n                void main() {\n                    vUv = uv;\n                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n                }\n            ",
-                    fragmentShader: "\n                uniform vec3 solidColor;\n                void main() {\n                    gl_FragColor = vec4(solidColor, 0.9);\n                }\n            ",
-                    transparent: true,
-                    side: THREE.DoubleSide
-                });
-                var geometry = new THREE.BufferGeometry();
-                var positions = new Float32Array(this.bufferLength * 2 * 3);
-                var uvs = new Float32Array(this.bufferLength * 2 * 2);
-                geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-                geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
-                var indices = [];
-                for(var i = 0; i < this.bufferLength - 1; i++){
-                    var p1 = i * 2; // top-left
-                    var p2 = p1 + 1; // bottom-left
-                    var p3 = (i + 1) * 2; // top-right
-                    var p4 = p3 + 1; // bottom-right
-                    indices.push(p1, p2, p3);
-                    indices.push(p2, p4, p3);
-                }
-                geometry.setIndex(indices);
-                this.mesh = new THREE.Mesh(geometry, material);
-                this.scene.add(this.mesh);
-                this.updatePosition(window.innerWidth, window.innerHeight);
-            }
-        },
-        {
-            // Call this from the main animation loop
-            key: "update",
-            value: function update() {
-                if (!this.analyser || !this.mesh) return;
-                // Smoothly interpolate the current color towards the target color
-                this.currentColor.lerp(this.targetColor, 0.05);
-                var newArray = this.analyser.getValue();
-                if (_instanceof(newArray, Float32Array)) {
-                    this.dataArray.set(newArray);
-                }
-                var positions = this.mesh.geometry.attributes.position.array;
-                var uvs = this.mesh.geometry.attributes.uv.array;
-                var startX = -this.width / 2;
-                var xStep = this.width / (this.bufferLength - 1);
-                var halfThickness = this.thickness / 2;
-                for(var i = 0; i < this.bufferLength; i++){
-                    // Apply exponential smoothing
-                    this.smoothedDataArray[i] = this.smoothingFactor * this.dataArray[i] + (1 - this.smoothingFactor) * this.smoothedDataArray[i];
-                    var x = startX + i * xStep;
-                    var y = this.yPosition + this.smoothedDataArray[i] * this.height;
-                    // Set top and bottom vertices for the ribbon
-                    var vertexIndex = i * 2 * 3;
-                    positions[vertexIndex] = x;
-                    positions[vertexIndex + 1] = y + halfThickness;
-                    positions[vertexIndex + 2] = 2;
-                    positions[vertexIndex + 3] = x;
-                    positions[vertexIndex + 4] = y - halfThickness;
-                    positions[vertexIndex + 5] = 2;
-                    // Set UVs
-                    var uvIndex = i * 2 * 2;
-                    uvs[uvIndex] = i / (this.bufferLength - 1); // U coordinate
-                    uvs[uvIndex + 1] = 1.0; // V for top vertex
-                    uvs[uvIndex + 2] = i / (this.bufferLength - 1); // U coordinate
-                    uvs[uvIndex + 3] = 0.0; // V for bottom vertex
-                }
-                this.mesh.geometry.attributes.position.needsUpdate = true;
-                this.mesh.geometry.attributes.uv.needsUpdate = true;
-                this.mesh.geometry.computeBoundingSphere();
-            }
-        },
-        {
-            key: "updateColor",
-            value: function updateColor(newColor) {
-                if (this.uniforms) {
-                    this.targetColor.set(newColor);
-                }
-            }
-        },
-        {
-            // Call this on window resize
-            key: "updatePosition",
-            value: function updatePosition(canvasWidth, canvasHeight) {
-                this.width = canvasWidth * 0.8;
-                this.yPosition = -canvasHeight / 2 + 250; // Position it higher, above the drum beat indicators
-            }
-        },
-        {
-            // Clean up Three.js resources
-            key: "dispose",
-            value: function dispose() {
-                if (this.mesh) {
-                    this.scene.remove(this.mesh);
-                    if (this.mesh.geometry) this.mesh.geometry.dispose();
-                    if (this.mesh.material) this.mesh.material.dispose();
-                }
-            }
+
+    _createVisualizer() {
+        const geometry = new THREE.PlaneGeometry(2, 2);
+        const material = new THREE.ShaderMaterial({
+            uniforms: this.uniforms,
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            transparent: true,
+            depthWrite: false,
+            depthTest: false
+        });
+
+        this.mesh = new THREE.Mesh(geometry, material);
+        this.mesh.renderOrder = -1;
+        this.mesh.frustumCulled = false;
+        this.scene.add(this.mesh);
+    }
+
+    update() {
+        if (!this.analyser || !this.mesh) return;
+
+        // Interpolate color
+        this.currentColor.lerp(this.targetColor, 0.05);
+
+        // Update time
+        this.uniforms.u_time.value = this.clock.getElapsedTime();
+
+        // Compute RMS amplitude from analyser
+        var waveformData = this.analyser.getValue();
+        var sum = 0;
+        for (var i = 0; i < waveformData.length; i++) {
+            sum += waveformData[i] * waveformData[i];
         }
-    ]);
-    return WaveformVisualizer;
-}();
+        var amplitude = Math.sqrt(sum / waveformData.length);
+        this.uniforms.u_amplitude.value = amplitude;
+    }
+
+    updateColor(newColor) {
+        this.targetColor.set(newColor);
+    }
+
+    updatePosition(canvasWidth, canvasHeight) {
+        this.uniforms.u_resolution.value.set(canvasWidth, canvasHeight);
+    }
+
+    dispose() {
+        if (this.mesh) {
+            this.scene.remove(this.mesh);
+            if (this.mesh.geometry) this.mesh.geometry.dispose();
+            if (this.mesh.material) this.mesh.material.dispose();
+        }
+    }
+}
