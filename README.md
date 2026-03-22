@@ -1,11 +1,11 @@
 ---
 license: mit
-title: Arpeggiator
+title: Hyperspace Jam
 sdk: static
-emoji: 🦀
+emoji: 🎹
 colorFrom: purple
-colorTo: pink
-short_description: Hand-controlled arpeggiator, drum machine, and visualizer
+colorTo: blue
+short_description: Hand-controlled synth with hyperbolic visuals
 ---
 # Hand Gesture Arpeggiator
 
