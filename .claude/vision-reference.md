@@ -65,6 +65,41 @@ Described by video analysis agent 2026-03-22.
 - Pattern complexity peak synced with audio distortion peak
 - Pulsation rhythm could sync with beat
 
+## Multiplayer Jam Session (3+ hands detected)
+
+### Core Concept
+When MediaPipe detects more than 2 hands, the system enters **multiplayer jam mode**. Each player pair gets distinct musical roles that complement each other — not just duplicates.
+
+### Player Role Assignment
+- **Player 1 (hands 0-1)**: Treble / Lead — higher octave range (C3-C6), brighter synth presets, faster arpeggio patterns
+- **Player 2 (hands 2-3)**: Bass / Foundation — lower octave range (C1-C3), deeper presets (Acid Bass, sub-sine), slower patterns, heavier reverb
+- Could also split as: melodic vs rhythmic, or arp vs pad
+
+### Musical Separation Strategy
+- Each player pair routes through its own PolySynth instance with distinct preset
+- Separate effects chains (Player 1: bright delay, Player 2: deep reverb)
+- Octave offset so they naturally harmonize rather than clash
+- Same scale (C Minor Pentatonic) but different registers = instant musical compatibility
+- BPM is shared — both players lock to the same Transport clock
+
+### Visual Differentiation
+- Player 1 mandala/geometry: cyan + magenta palette
+- Player 2 mandala/geometry: gold + green palette
+- Internal Poincaré tessellations use different {P,Q} tilings per player
+- Inter-player geometry: lines connecting across players' hands create larger mandala structures
+
+### Detection Logic
+- MediaPipe HandLandmarker already supports `numHands: 4`
+- Hands 0-1 = Player 1, Hands 2-3 = Player 2
+- If only 2 hands detected, single-player mode (current behavior)
+- If 3-4 hands detected, split into two players automatically
+- UI indicator shows "JAM SESSION" when multiplayer is active
+
+### Scaling Considerations
+- 4 hands = 84 landmarks at 30fps — still performant
+- Two separate PolySynth instances may need careful volume balancing
+- Master bus limiter (-2dB) protects speakers regardless of player count
+
 ## Implementation Priority for Hyperspace Jam
 1. Pinch detection → merge thumb+index into single anchor
 2. Dynamic shape state (line → triangle → quad) based on active anchors
@@ -73,3 +108,4 @@ Described by video analysis agent 2026-03-22.
 5. Z-depth line thickness + node size scaling
 6. Audio filter modulation from shape proximity
 7. Pulsation and particle effects
+8. **Multiplayer jam session** — detect 3-4 hands, split into treble+bass roles
