@@ -388,9 +388,10 @@ export var Game = /*#__PURE__*/ function() {
                 this.renderDiv.appendChild(this.videoElement);
                 // Psychedelic hue rotation on the webcam feed
                 var hueAngle = 0;
+                var videoEl = this.videoElement;
                 setInterval(function() {
                     hueAngle = (hueAngle + 0.5) % 360;
-                    _this.videoElement.style.filter = 'saturate(1.8) contrast(1.2) hue-rotate(' + hueAngle + 'deg)';
+                    videoEl.style.filter = 'saturate(1.8) contrast(1.2) hue-rotate(' + hueAngle + 'deg)';
                 }, 50);
                 // Container for Status text (formerly Game Over) and restart hint
                 this.gameOverContainer = document.createElement('div');
