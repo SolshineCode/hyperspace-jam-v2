@@ -798,6 +798,35 @@ export var Game = /*#__PURE__*/ function() {
                                             _this1.musicManager.updateArpeggio(i, note);
                                         }
                                         _this1.musicManager.updateArpeggioVolume(i, velocity);
+                                        // --- Finger Expression Controls ---
+                                        // Each finger's curl amount (0=curled, 1=extended) based on tip vs PIP joint Y
+                                        var wrist = smoothedLandmarks[0];
+                                        var middleTip = smoothedLandmarks[12];
+                                        var middlePip = smoothedLandmarks[10];
+                                        var ringTip = smoothedLandmarks[16];
+                                        var ringPip = smoothedLandmarks[14];
+                                        var pinkyTip = smoothedLandmarks[20];
+                                        var pinkyPip = smoothedLandmarks[18];
+                                        // Finger extension: how far tip is above its PIP joint (normalized)
+                                        var palmSize = Math.abs(wrist.y - smoothedLandmarks[9].y) || 0.1;
+                                        var middleExt = Math.max(0, Math.min(1, (middlePip.y - middleTip.y) / palmSize));
+                                        var ringExt = Math.max(0, Math.min(1, (ringPip.y - ringTip.y) / palmSize));
+                                        var pinkyExt = Math.max(0, Math.min(1, (pinkyPip.y - pinkyTip.y) / palmSize));
+                                        // Hand spread: average distance between adjacent fingertips / palm size
+                                        var tips = [smoothedLandmarks[4], smoothedLandmarks[8], middleTip, ringTip, pinkyTip];
+                                        var spreadSum = 0;
+                                        for (var t = 0; t < tips.length - 1; t++) {
+                                            var sdx = tips[t].x - tips[t+1].x;
+                                            var sdy = tips[t].y - tips[t+1].y;
+                                            spreadSum += Math.sqrt(sdx*sdx + sdy*sdy);
+                                        }
+                                        var handSpread = Math.max(0, Math.min(1, (spreadSum / 4) / (palmSize * 2)));
+                                        _this1.musicManager.updateFingerExpression({
+                                            middleFinger: middleExt,
+                                            ringFinger: ringExt,
+                                            pinkyFinger: pinkyExt,
+                                            handSpread: handSpread
+                                        });
                                     } else {
                                         // If it is a fist, make sure the arpeggio is stopped
                                         _this1.musicManager.stopArpeggio(i);

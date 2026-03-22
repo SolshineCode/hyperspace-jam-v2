@@ -174,6 +174,49 @@ export class MusicManager {
         console.log(`Switched to synth preset ${this.currentSynthIndex}: ${['Hyperspace Pluck', 'Acid Bass', 'Ethereal Pad'][this.currentSynthIndex]}`);
     }
 
+    /**
+     * Update expressive finger controls (called per-frame from game.js)
+     * @param {object} params — { middleFinger, ringFinger, pinkyFinger, handSpread }
+     *   Each finger value is 0-1 (0=curled, 1=fully extended)
+     *   handSpread is 0-1 (0=fingers together, 1=fingers wide apart)
+     */
+    updateFingerExpression(params) {
+        if (!this.isStarted) return;
+
+        const { middleFinger, ringFinger, pinkyFinger, handSpread } = params;
+
+        // Middle finger → delay wet amount (raised = more spacey echo)
+        if (this.delay) {
+            this.delay.wet.value = 0.05 + middleFinger * 0.55; // 0.05-0.6
+        }
+
+        // Ring finger → reverb wet amount (raised = cavernous wash)
+        if (this.reverb) {
+            this.reverb.wet.value = 0.15 + ringFinger * 0.65; // 0.15-0.8
+        }
+
+        // Pinky finger → arpeggio speed (raised = faster pattern)
+        const activePattern = this.activePatterns.get(0);
+        if (activePattern) {
+            // Map pinky to note intervals: "8n" (slow) → "32n" (fast)
+            const intervals = ["8n", "8n.", "4n.", "16n", "16n.", "32n"];
+            const idx = Math.min(Math.floor(pinkyFinger * intervals.length), intervals.length - 1);
+            if (activePattern.pattern.interval !== intervals[idx]) {
+                activePattern.pattern.interval = intervals[idx];
+            }
+        }
+
+        // Hand spread → modulation index (wider = richer, more complex timbre)
+        if (this.polySynth) {
+            const modIdx = 2 + handSpread * 22; // 2-24 range
+            try {
+                this.polySynth.set({ modulationIndex: modIdx });
+            } catch(e) {
+                // Some presets may not support this — silently ignore
+            }
+        }
+    }
+
     getAnalyser() {
         return this.analyser;
     }
