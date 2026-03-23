@@ -353,10 +353,11 @@ export class MusicManager {
         const rootFreq = Tone.Frequency(rootNote).toFrequency();
 
         // === INDEX: Acid Squelch — CONTINUOUS filter cutoff from extension ===
-        // Extended = open filter (bright), curled = closed (dark)
         if (this.fingerSynths.index) {
-            const cutoff = 200 + ext.index * 4000;
-            this.fingerSynths.index.filter.frequency.rampTo(cutoff, 0.05);
+            try {
+                const cutoff = 200 + ext.index * 4000;
+                this.fingerSynths.index.filter.frequency.value = cutoff;
+            } catch(e) {}
             // Trigger on curl→extend transition
             if (prevExt.index < 0.2 && ext.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.index = now;
@@ -366,11 +367,8 @@ export class MusicManager {
             }
         }
 
-        // === MIDDLE: Laser Zap — extension controls volume of a sustained tone ===
+        // === MIDDLE: Laser Zap — trigger only, no continuous volume ramp ===
         if (this.fingerSynths.middle) {
-            // Continuous: extension amount = volume of the zap synth
-            const middleVol = ext.middle > 0.3 ? (-20 + ext.middle * 20) : -100;
-            this.fingerSynths.middle.volume.rampTo(middleVol, 0.05);
             // Trigger on transition
             if (prevExt.middle < 0.2 && ext.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.middle = now;
@@ -381,10 +379,8 @@ export class MusicManager {
             }
         }
 
-        // === RING: Crystal Chime — extension controls resonance ===
+        // === RING: Crystal Chime — trigger only ===
         if (this.fingerSynths.ring) {
-            // Continuous: extension = resonance brightness
-            this.fingerSynths.ring.resonance = 500 + ext.ring * 4000;
             // Trigger on transition
             if (prevExt.ring < 0.2 && ext.ring > 0.35 && (now - cooldowns.ring) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.ring = now;
@@ -403,10 +399,12 @@ export class MusicManager {
         }
 
         // === CONTINUOUS: Delay wet amount from average finger extension ===
-        const avgExt = (ext.index + ext.middle + ext.ring + ext.pinky) / 4;
-        if (this.delay) {
-            this.delay.wet.value = 0.05 + avgExt * 0.4;
-        }
+        try {
+            const avgExt = (ext.index + ext.middle + ext.ring + ext.pinky) / 4;
+            if (this.delay && isFinite(avgExt)) {
+                this.delay.wet.value = 0.05 + Math.max(0, Math.min(1, avgExt)) * 0.4;
+            }
+        } catch(e) {}
 
         // Store for next frame
         prevExt.index = ext.index;
