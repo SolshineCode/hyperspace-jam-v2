@@ -1510,8 +1510,8 @@ export var Game = /*#__PURE__*/ function() {
                             // Finger labels at each fingertip
                             var fingerLabels = [
                                 { idx: 12, text: 'ROOT', color: this.labelColors.evaGreen },
-                                { idx: 16, text: '5th', color: this.labelColors.evaOrange },
-                                { idx: 20, text: 'm7', color: this.labelColors.evaRed }
+                                { idx: 16, text: 'BEAT', color: this.labelColors.evaOrange },
+                                { idx: 20, text: 'ZAP', color: this.labelColors.evaRed }
                             ];
                             for (var fl = 0; fl < fingerLabels.length; fl++) {
                                 var fp = points3D[fingerLabels[fl].idx];
@@ -1594,6 +1594,18 @@ export var Game = /*#__PURE__*/ function() {
                         var cw = this.renderDiv.clientWidth;
                         var ch = this.renderDiv.clientHeight;
                         this.shapeManager.update(shapeHands, cw, ch);
+                        // Pipe shape data to audio — depth modulates bass
+                        if (this.musicManager.updateShapeAudio) {
+                            var shapeState = this.shapeManager.getShapeState();
+                            var shapeDepth = this.shapeManager.getAverageDepth();
+                            var shapeArea = this.shapeManager.getShapeArea();
+                            this.musicManager.updateShapeAudio({
+                                type: shapeState.type,
+                                depth: shapeDepth,
+                                area: shapeArea,
+                                anchorCount: shapeState.anchors.length
+                            });
+                        }
                     }
                     if (this.displacementFilter) {
                         var dispAmplitude = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;

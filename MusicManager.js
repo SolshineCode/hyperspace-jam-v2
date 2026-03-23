@@ -235,6 +235,26 @@ export class MusicManager {
 
         this._continuousActive = false;
 
+        // === SHAPE BASS — epic deep bass tied to the white quadrilateral ===
+        // Z-depth modulates lowpass filter + distortion (closer = darker/heavier)
+        this._shapeBassFilter = new Tone.Filter({
+            frequency: 800, type: 'lowpass', Q: 2, rolloff: -24
+        }).connect(this.limiter);
+        this._shapeBassDistortion = new Tone.Distortion({
+            distortion: 0, wet: 0
+        }).connect(this._shapeBassFilter);
+        this._shapeBass = new Tone.Synth({
+            oscillator: { type: 'fatsawtooth', spread: 15, count: 3 },
+            envelope: { attack: 0.3, decay: 0, sustain: 1, release: 1.5 }
+        }).connect(this._shapeBassDistortion);
+        this._shapeBass.volume.value = -10;
+        this._shapeBassActive = false;
+        this._shapeSubBass = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.5, decay: 0, sustain: 1, release: 1.0 }
+        }).connect(this.limiter);
+        this._shapeSubBass.volume.value = -8;
+
         // Pre-allocate touch synths (no dynamic allocation = no memory leak)
         this._initTouchSynths();
 
@@ -696,6 +716,97 @@ export class MusicManager {
         // Wrist angle now handles most modulation in updateGesture
     }
 
+    // --- Shape Bass (white quadrilateral = epic bass) ---
+
+    updateShapeAudio(data) {
+        if (!this.isStarted || this._panicMuted) return;
+
+        const { type, depth, area, anchorCount } = data;
+        const hasShape = (type !== 'none' && anchorCount >= 2);
+
+        // Start/stop the shape bass drone
+        if (hasShape && !this._shapeBassActive) {
+            this._shapeBassActive = true;
+            // Bass note follows the pad root if available, else C2
+            let bassNote = 'C2';
+            this.padSynths.forEach(pd => {
+                if (pd.currentRoot) {
+                    const freq = Tone.Frequency(pd.currentRoot).toFrequency();
+                    bassNote = Tone.Frequency(freq / 2).toNote(); // one octave below pad
+                }
+            });
+            try {
+                this._shapeBass.triggerAttack(bassNote, Tone.now());
+                this._shapeSubBass.triggerAttack(Tone.Frequency(bassNote).toFrequency() / 2, Tone.now());
+            } catch(e) {}
+        } else if (!hasShape && this._shapeBassActive) {
+            this._shapeBassActive = false;
+            try {
+                this._shapeBass.triggerRelease(Tone.now());
+                this._shapeSubBass.triggerRelease(Tone.now());
+            } catch(e) {}
+        }
+
+        if (!hasShape) return;
+
+        // === Z-DEPTH MODULATION ===
+        // depth is typically -0.2 (close) to 0 (far)
+        // Map to 0 (far/bright) → 1 (close/dark)
+        const proximity = Math.max(0, Math.min(1, (-depth - 0) / 0.15));
+
+        // Filter: far = open (2000Hz), close = dark (100Hz)
+        if (this._shapeBassFilter) {
+            this._shapeBassFilter.frequency.value = 2000 - proximity * 1800;
+            this._shapeBassFilter.Q.value = 1 + proximity * 6;
+        }
+
+        // Distortion: more when close
+        if (this._shapeBassDistortion) {
+            this._shapeBassDistortion.distortion = proximity * 0.6;
+            this._shapeBassDistortion.wet.value = proximity * 0.5;
+        }
+
+        // Volume scales with shape area (bigger shape = louder bass)
+        const vol = -18 + area * 14;
+        try {
+            this._shapeBass.volume.rampTo(vol, 0.03);
+            this._shapeSubBass.volume.rampTo(vol - 4, 0.03);
+        } catch(e) {}
+
+        // === BASS BEAT PULSE — controlled by synth hand ring finger distance ===
+        // Ring finger distance sets beat rate of the shape bass (0=off, 1=fast pulse)
+        const ringDist = this._smoothDist.ring || 0;
+        if (ringDist > 0.15 && this._shapeBassActive) {
+            const beatBPM = 30 + ringDist * 130; // 30-160 BPM
+            const beatMs = 60000 / beatBPM;
+            if (!this._shapeBeatTimer) this._shapeBeatTimer = 0;
+            const now = performance.now();
+            if (now - this._shapeBeatTimer > beatMs) {
+                this._shapeBeatTimer = now;
+                // Pulse the bass volume for rhythmic throb
+                try {
+                    this._shapeBass.volume.rampTo(vol + 6, 0.01);
+                    this._shapeBass.volume.rampTo(vol, 0.08);
+                    this._shapeSubBass.volume.rampTo(vol, 0.01);
+                    this._shapeSubBass.volume.rampTo(vol - 4, 0.08);
+                } catch(e) {}
+            }
+        }
+
+        // Track pad root for bass note following
+        if (this._shapeBassActive) {
+            this.padSynths.forEach(pd => {
+                if (pd.currentRoot) {
+                    const freq = Tone.Frequency(pd.currentRoot).toFrequency();
+                    try {
+                        this._shapeBass.frequency.rampTo(freq / 2, 0.1);
+                        this._shapeSubBass.frequency.rampTo(freq / 4, 0.1);
+                    } catch(e) {}
+                }
+            });
+        }
+    }
+
     // --- Finger Touch Sounds ---
     // Unique sound per finger, triggered when any two fingertips meet
 
@@ -818,6 +929,14 @@ export class MusicManager {
 
         // Reset glitch beat timers
         this._drumBeatTimers = { kick: 0, hihat: 0, clap: 0 };
+        this._shapeBeatTimer = 0;
+
+        // Stop shape bass
+        this._shapeBassActive = false;
+        try { this._shapeBass.triggerRelease(Tone.now()); } catch(e) {}
+        try { this._shapeSubBass.triggerRelease(Tone.now()); } catch(e) {}
+        if (this._shapeBassFilter) this._shapeBassFilter.frequency.value = 800;
+        if (this._shapeBassDistortion) { this._shapeBassDistortion.distortion = 0; this._shapeBassDistortion.wet.value = 0; }
 
         if (this.fingerSynths) {
             for (const finger of ['index', 'middle', 'ring', 'pinky']) {
