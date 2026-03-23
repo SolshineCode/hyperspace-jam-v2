@@ -22,17 +22,72 @@ export class ShapeManager {
         this.PINCH_THRESHOLD = 30; // pixels screen space
         this.SMOOTH_FACTOR = 0.3;
         this.FADE_DURATION = 150; // ms
+
+        // --- Pre-allocate node pool (6 nodes for active + 6 for fading) ---
+        this.nodePool = [];
+        for (let i = 0; i < 12; i++) {
+            const squareGeom = new THREE.PlaneGeometry(20, 20);
+            const squareMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 1,
+                depthTest: false,
+                side: THREE.DoubleSide
+            });
+            const squareMesh = new THREE.Mesh(squareGeom, squareMat);
+            squareMesh.rotation.z = Math.PI / 4;
+            squareMesh.visible = false;
+
+            const dotGeom = new THREE.CircleGeometry(4, 16);
+            const dotMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 1,
+                depthTest: false,
+                side: THREE.DoubleSide
+            });
+            const dotMesh = new THREE.Mesh(dotGeom, dotMat);
+            dotMesh.visible = false;
+
+            this.group.add(squareMesh);
+            this.group.add(dotMesh);
+            this.nodePool.push({ square: squareMesh, dot: dotMesh });
+        }
+
+        // --- Pre-allocate edge pool (12 edges) ---
+        this.edgePool = [];
+        for (let i = 0; i < 12; i++) {
+            const positions = new Float32Array(4 * 3); // 4 vertices × 3 coords
+            const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geom.setIndex(new THREE.BufferAttribute(indices, 1));
+
+            const mat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 1,
+                depthTest: false,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geom, mat);
+            mesh.visible = false;
+
+            this.group.add(mesh);
+            this.edgePool.push(mesh);
+        }
     }
 
     update(handsData, canvasWidth, canvasHeight) {
         const now = performance.now();
 
-        // --- Clear previous frame geometry ---
-        while (this.group.children.length) {
-            const child = this.group.children[0];
-            this.group.remove(child);
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) child.material.dispose();
+        // --- Hide all pooled meshes ---
+        for (const node of this.nodePool) {
+            node.square.visible = false;
+            node.dot.visible = false;
+        }
+        for (const edge of this.edgePool) {
+            edge.visible = false;
         }
 
         if (!handsData) handsData = [];
@@ -62,9 +117,6 @@ export class ShapeManager {
             const thumbIndexDist = Math.sqrt(dx * dx + dy * dy);
 
             // Check if middle finger is extended (tip significantly above dip in y)
-            // In screen coords, "above" means smaller y if y=0 is top, but MediaPipe
-            // gives y increasing downward. Extended = tip.y < dip.y (tip is higher up).
-            // Use a threshold to avoid noise.
             const middleExtended = (middleDip.y - middleTip.y) > 15;
 
             if (thumbIndexDist < this.PINCH_THRESHOLD) {
@@ -168,22 +220,45 @@ export class ShapeManager {
         else if (activeCount === 3) shapeType = 'triangle';
         else if (activeCount >= 4) shapeType = 'quad';
 
-        // --- Render active anchor nodes ---
-        for (let i = 0; i < this.anchors.length; i++) {
+        // --- Render active anchor nodes (using pool) ---
+        let nodeIdx = 0;
+        for (let i = 0; i < this.anchors.length && nodeIdx < this.nodePool.length; i++, nodeIdx++) {
             const anc = this.anchors[i];
             const age = now - anc.birthTime;
             const fadeIn = Math.min(1, age / this.FADE_DURATION);
-            this._drawNode(anc.smoothed, anc.depthScale, fadeIn);
+            const scale = anc.depthScale;
+            const node = this.nodePool[nodeIdx];
+
+            node.square.visible = true;
+            node.square.position.set(anc.smoothed.x, anc.smoothed.y, 3);
+            node.square.scale.set(scale, scale, 1);
+            node.square.material.opacity = fadeIn;
+
+            node.dot.visible = true;
+            node.dot.position.set(anc.smoothed.x, anc.smoothed.y, 3.01);
+            node.dot.scale.set(scale, scale, 1);
+            node.dot.material.opacity = fadeIn;
         }
 
-        // --- Render fading anchor nodes ---
-        for (let i = 0; i < this.fadingAnchors.length; i++) {
+        // --- Render fading anchor nodes (using pool) ---
+        for (let i = 0; i < this.fadingAnchors.length && nodeIdx < this.nodePool.length; i++, nodeIdx++) {
             const fa = this.fadingAnchors[i];
             const fadeOut = 1 - Math.min(1, (now - fa.fadeStartTime) / this.FADE_DURATION);
-            this._drawNode(fa.smoothed, fa.depthScale, fadeOut);
+            const scale = fa.depthScale;
+            const node = this.nodePool[nodeIdx];
+
+            node.square.visible = true;
+            node.square.position.set(fa.smoothed.x, fa.smoothed.y, 3);
+            node.square.scale.set(scale, scale, 1);
+            node.square.material.opacity = fadeOut;
+
+            node.dot.visible = true;
+            node.dot.position.set(fa.smoothed.x, fa.smoothed.y, 3.01);
+            node.dot.scale.set(scale, scale, 1);
+            node.dot.material.opacity = fadeOut;
         }
 
-        // --- Render edges ---
+        // --- Render edges (using pool) ---
         if (shapeType !== 'none') {
             this._drawEdges(shapeType, now);
         }
@@ -228,39 +303,6 @@ export class ShapeManager {
         // Map z from [-0.2, 0] to [3.0, 0.5] (DRAMATIC range)
         const t = Math.max(0, Math.min(1, (avgZ - (-0.2)) / (0 - (-0.2))));
         return 3.0 + t * (0.5 - 3.0); // lerp from 3.0 (close) to 0.5 (far)
-    }
-
-    _drawNode(position, depthScale, opacity) {
-        const z = 3; // In FRONT of everything
-        const outerSize = 20 * depthScale;
-        const dotRadius = 4 * depthScale;
-
-        // Outer square: PlaneGeometry rotated 45deg, white
-        const squareGeom = new THREE.PlaneGeometry(outerSize, outerSize);
-        const squareMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: opacity,
-            depthTest: false,
-            side: THREE.DoubleSide
-        });
-        const squareMesh = new THREE.Mesh(squareGeom, squareMat);
-        squareMesh.position.set(position.x, position.y, z);
-        squareMesh.rotation.z = Math.PI / 4; // 45 degrees
-        this.group.add(squareMesh);
-
-        // Inner dot: CircleGeometry
-        const dotGeom = new THREE.CircleGeometry(dotRadius, 16);
-        const dotMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: opacity,
-            depthTest: false,
-            side: THREE.DoubleSide
-        });
-        const dotMesh = new THREE.Mesh(dotGeom, dotMat);
-        dotMesh.position.set(position.x, position.y, z + 0.01);
-        this.group.add(dotMesh);
     }
 
     _drawEdges(shapeType, now) {
@@ -324,16 +366,8 @@ export class ShapeManager {
             }
         }
 
-        // Render each edge as a mesh ribbon (PlaneGeometry quad)
-        const edgeMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: minOpacity,
-            depthTest: false,
-            side: THREE.DoubleSide
-        });
-
-        for (let e = 0; e < edges.length; e++) {
+        // Render each edge by updating pre-allocated buffer geometry
+        for (let e = 0; e < edges.length && e < this.edgePool.length; e++) {
             const pA = edges[e][0];
             const pB = edges[e][1];
 
@@ -346,21 +380,19 @@ export class ShapeManager {
             const nx = -dy / len * (edgeWidth / 2);
             const ny = dx / len * (edgeWidth / 2);
 
+            const mesh = this.edgePool[e];
+            const posAttr = mesh.geometry.getAttribute('position');
+            const arr = posAttr.array;
+
             // 4 vertices forming a thin rectangle
-            const positions = new Float32Array([
-                pA.x + nx, pA.y + ny, z,
-                pA.x - nx, pA.y - ny, z,
-                pB.x - nx, pB.y - ny, z,
-                pB.x + nx, pB.y + ny, z
-            ]);
-            const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+            arr[0] = pA.x + nx; arr[1] = pA.y + ny; arr[2] = z;
+            arr[3] = pA.x - nx; arr[4] = pA.y - ny; arr[5] = z;
+            arr[6] = pB.x - nx; arr[7] = pB.y - ny; arr[8] = z;
+            arr[9] = pB.x + nx; arr[10] = pB.y + ny; arr[11] = z;
 
-            const geom = new THREE.BufferGeometry();
-            geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geom.setIndex(new THREE.BufferAttribute(indices, 1));
-
-            const mesh = new THREE.Mesh(geom, edgeMat);
-            this.group.add(mesh);
+            posAttr.needsUpdate = true;
+            mesh.material.opacity = minOpacity;
+            mesh.visible = true;
         }
     }
 
@@ -424,11 +456,19 @@ export class ShapeManager {
 
     dispose() {
         this._removeTessellationMesh();
+        // Dispose all pooled geometries and materials
+        for (const node of this.nodePool) {
+            node.square.geometry.dispose();
+            node.square.material.dispose();
+            node.dot.geometry.dispose();
+            node.dot.material.dispose();
+        }
+        for (const edge of this.edgePool) {
+            edge.geometry.dispose();
+            edge.material.dispose();
+        }
         while (this.group.children.length) {
-            const child = this.group.children[0];
-            this.group.remove(child);
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) child.material.dispose();
+            this.group.remove(this.group.children[0]);
         }
         this.scene.remove(this.group);
     }

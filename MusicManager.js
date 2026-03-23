@@ -193,10 +193,16 @@ export class MusicManager {
         const padData = this.padSynths.get(handId);
         if (padData) {
             padData.synth.triggerRelease(Tone.now());
-            // Dispose after release tail
-            setTimeout(() => {
-                padData.synth.dispose();
-            }, 3000);
+            // Track pending disposal to prevent accumulation
+            if (!this._pendingDisposals) this._pendingDisposals = new Set();
+            const synth = padData.synth;
+            if (!this._pendingDisposals.has(synth)) {
+                this._pendingDisposals.add(synth);
+                setTimeout(() => {
+                    try { synth.dispose(); } catch(e) { /* already disposed */ }
+                    this._pendingDisposals.delete(synth);
+                }, 2000);
+            }
             this.padSynths.delete(handId);
             this.handVolumes.delete(handId);
             this.fingerCooldowns.delete(handId);

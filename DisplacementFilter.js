@@ -101,11 +101,14 @@ export class DisplacementFilter {
         if (!this.enabled) return;
         this.time += 0.016;
 
+        // Throttle SVG DOM updates to ~10fps to prevent layout thrashing
+        this._frameCount = (this._frameCount || 0) + 1;
+        if (this._frameCount % 6 !== 0) return;
+
         var amp = Math.max(0.15, amplitude || 0);
 
         // Animate "Evolution" — change the noise seed over time
-        // This is the key: the noise pattern evolves slowly, creating organic movement
-        var seed = Math.floor(this.time * 2) % 1000;
+        var seed = Math.floor(this.time * 1.5) % 1000;
         this.turbulence.setAttribute('seed', String(seed));
         this.turbulence2.setAttribute('seed', String(seed + 500));
 
