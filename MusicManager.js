@@ -178,6 +178,26 @@ export class MusicManager {
         }).connect(this.limiter);
         this.drumThumbSynth.volume.value = -4;
 
+        // === DRUM SAMPLE PLAYERS (finger distance = BPM) ===
+        // Each drum finger controls the beat rate of its sample
+        this.drumPlayers = new Tone.Players({
+            urls: {
+                kick: 'assets/kick.wav',
+                hihat: 'assets/hihat.wav',
+                clap: 'assets/clap.wav'
+            },
+            onload: () => {
+                console.log('Drum sample players loaded for finger-BPM control');
+                this._drumPlayersLoaded = true;
+                this.drumPlayers.player('kick').volume.value = -2;
+                this.drumPlayers.player('hihat').volume.value = -4;
+                this.drumPlayers.player('clap').volume.value = -2;
+            }
+        }).connect(this.limiter);
+        this._drumPlayersLoaded = false;
+        // Track last hit time per drum for BPM control
+        this._drumBeatTimers = { kick: 0, hihat: 0, clap: 0 };
+
         // Legacy references
         this.kickSynth = this.drumFingerSynths.middle;
         this.hatSynth = new Tone.NoiseSynth({
@@ -512,7 +532,52 @@ export class MusicManager {
             d[f] = this._smooth(this._smoothDrumDist, f, dist[f] || 0);
         }
 
-        // === THUMB: Tom hit — trigger on extend ===
+        // =====================================================================
+        // FINGER DISTANCE = DRUM BPM
+        // 0 (curled) = silent, low extension = slow beat, fully extended = fast
+        // Each finger independently controls one drum sample's repeat rate
+        // Middle=KICK, Ring=HIHAT, Pinky=CLAP
+        // Thumb=tom synth (kept as trigger), Index=nothing (square finger)
+        // =====================================================================
+
+        // Minimum distance to start playing (dead zone to avoid accidental triggers)
+        const DEAD_ZONE = 0.12;
+        // BPM range: 40 BPM (very slow) to 300 BPM (frantic)
+        const MIN_BPM = 40;
+        const MAX_BPM = 300;
+
+        // Helper: distance → ms between beats
+        const distToInterval = (dist) => {
+            if (dist < DEAD_ZONE) return Infinity; // silent
+            const t = (dist - DEAD_ZONE) / (1 - DEAD_ZONE); // 0→1 above dead zone
+            const bpm = MIN_BPM + t * (MAX_BPM - MIN_BPM);
+            return 60000 / bpm; // ms per beat
+        };
+
+        if (this._drumPlayersLoaded) {
+            // --- MIDDLE: KICK ---
+            const kickInterval = distToInterval(d.middle);
+            if (kickInterval < Infinity && (now - this._drumBeatTimers.kick) > kickInterval) {
+                this._drumBeatTimers.kick = now;
+                try { this.drumPlayers.player('kick').start(Tone.now()); } catch(e) {}
+            }
+
+            // --- RING: HIHAT ---
+            const hihatInterval = distToInterval(d.ring);
+            if (hihatInterval < Infinity && (now - this._drumBeatTimers.hihat) > hihatInterval) {
+                this._drumBeatTimers.hihat = now;
+                try { this.drumPlayers.player('hihat').start(Tone.now()); } catch(e) {}
+            }
+
+            // --- PINKY: CLAP ---
+            const clapInterval = distToInterval(d.pinky);
+            if (clapInterval < Infinity && (now - this._drumBeatTimers.clap) > clapInterval) {
+                this._drumBeatTimers.clap = now;
+                try { this.drumPlayers.player('clap').start(Tone.now()); } catch(e) {}
+            }
+        }
+
+        // --- THUMB: Tom hit (synth, trigger on extend) ---
         if (this.drumThumbSynth) {
             if (prevExt.thumb < 0.2 && d.thumb > 0.35 && (now - (cooldowns.thumb || 0)) > 200) {
                 cooldowns.thumb = now;
@@ -521,77 +586,16 @@ export class MusicManager {
             }
         }
 
-        // INDEX: No effect (square finger — fully independent)
-
-        // === MIDDLE: 808 Kick + Noise Riser — the HEAVY finger ===
-        // Trigger: deep kick hit with distance-controlled pitch sweep
-        // Continuous: noise riser that starts/stops based on distance
-        if (this.drumFingerSynths.middle) {
-            // Kick trigger
-            try {
-                this.drumFingerSynths.middle.pitchDecay = 0.02 + d.middle * 0.15;
-                this.drumFingerSynths.middle.octaves = 4 + d.middle * 6;
-            } catch(e) {}
-            if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
-                cooldowns.middle = now;
-                this.drumFingerSynths.middle.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
-            }
-        }
-        // Riser continuous (also on middle)
-        if (this._riserFilter) {
-            this._riserFilter.baseFrequency = 100 + Math.pow(d.middle, 2) * 5000;
-            this._riserFilter.octaves = 2 + d.middle * 6;
-        }
-        if (this._drumRiser) {
-            if (d.middle > 0.25 && !this._drumMiddleActive) {
-                this._drumMiddleActive = true;
-                this._drumRiser.triggerAttack(Tone.now(), 0.6);
-            } else if (d.middle < 0.15 && this._drumMiddleActive) {
-                this._drumMiddleActive = false;
-                try { this._drumRiser.triggerRelease(Tone.now()); } catch(e) {}
-            }
-            if (this._drumMiddleActive) {
-                this._drumRiser.volume.rampTo(-14 + d.middle * 10, 0.05);
-            }
-        }
-
-        // === RING: Stutter — CONTINUOUS rapid-fire when extended ===
-        // Distance controls stutter speed: close = slow, far = machine-gun
-        if (this.drumFingerSynths.ring) {
-            if (d.ring > 0.3) {
-                const stutterMs = Math.max(30, 200 - d.ring * 170); // 200ms → 30ms
-                if (!this._stutterInterval || (now - this._lastStutter) > stutterMs) {
-                    this._lastStutter = now;
-                    this.drumFingerSynths.ring.triggerAttackRelease('64n', Tone.now(), 0.4 + d.ring * 0.4);
-                }
-            }
-        }
-
-        // === PINKY: Crash — trigger + continuous reverb depth ===
-        if (this._crashReverb) {
-            this._crashReverb.wet.value = 0.3 + d.pinky * 0.7;
-        }
-        if (this.drumFingerSynths.pinky) {
-            if (prevExt.pinky < 0.2 && d.pinky > 0.35 && (now - cooldowns.pinky) > 300) {
-                cooldowns.pinky = now;
-                this.drumFingerSynths.pinky.triggerAttackRelease('4n', Tone.now(), 0.9);
-            }
-        }
-
-        // === WRIST ANGLE on drum hand: modulates riser filter + stutter pitch ===
+        // === WRIST ANGLE: modulates drum sample volumes ===
         const drumWristAngle = gestureData.wristAngle || 0;
         const drumAbsAngle = Math.abs(drumWristAngle);
-        if (this._riserFilter) {
-            // Wrist tilt shifts the riser's center frequency dramatically
-            this._riserFilter.baseFrequency = 100 + Math.pow(d.middle, 2) * 5000 + drumAbsAngle * 3000;
-        }
-        // Stutter volume boost when tilted
-        if (this.drumFingerSynths.ring && d.ring > 0.3) {
-            this.drumFingerSynths.ring.volume.value = -8 + drumAbsAngle * 6;
-        }
-        // Crash reverb decay feels longer when tilted
-        if (this._crashReverb) {
-            this._crashReverb.wet.value = 0.3 + d.pinky * 0.5 + drumAbsAngle * 0.2;
+        if (this._drumPlayersLoaded) {
+            // Wrist tilt boosts volume of all drums
+            try {
+                this.drumPlayers.player('kick').volume.value = -2 + drumAbsAngle * 4;
+                this.drumPlayers.player('hihat').volume.value = -4 + drumAbsAngle * 4;
+                this.drumPlayers.player('clap').volume.value = -2 + drumAbsAngle * 4;
+            } catch(e) {}
         }
 
         for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
