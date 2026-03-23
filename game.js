@@ -837,6 +837,36 @@ export var Game = /*#__PURE__*/ function() {
                                             pinkyFinger: pinkyExt,
                                             handSpread: handSpread
                                         });
+                                        // --- Gesture-Driven Music ---
+                                        var indexExt = Math.max(0, Math.min(1, (smoothedLandmarks[6].y - smoothedLandmarks[8].y) / palmSize));
+                                        var fingerStates = {
+                                            index: indexExt > 0.3,
+                                            middle: middleExt > 0.3,
+                                            ring: ringExt > 0.3,
+                                            pinky: pinkyExt > 0.3
+                                        };
+                                        // Track previous states and compute velocities
+                                        if (!_this1._prevFingerStates) _this1._prevFingerStates = {};
+                                        if (!_this1._prevHandPos) _this1._prevHandPos = {};
+                                        var prevFS = _this1._prevFingerStates[i] || { index: false, middle: false, ring: false, pinky: false };
+                                        var prevHP = _this1._prevHandPos[i] || { x: hand.anchorPos.x, y: hand.anchorPos.y };
+                                        var handVelX = hand.anchorPos.x - prevHP.x;
+                                        var handVelY = hand.anchorPos.y - prevHP.y;
+                                        _this1.musicManager.updateGesture(i, {
+                                            fingerStates: fingerStates,
+                                            prevFingerStates: prevFS,
+                                            fingerVelocities: {
+                                                index: Math.abs(indexExt - (prevFS.index ? 1 : 0)),
+                                                middle: Math.abs(middleExt - (prevFS.middle ? 1 : 0)),
+                                                ring: Math.abs(ringExt - (prevFS.ring ? 1 : 0)),
+                                                pinky: Math.abs(pinkyExt - (prevFS.pinky ? 1 : 0))
+                                            },
+                                            handVelocity: { x: handVelX, y: handVelY },
+                                            rootNote: note,
+                                            volume: velocity
+                                        });
+                                        _this1._prevFingerStates[i] = fingerStates;
+                                        _this1._prevHandPos[i] = { x: hand.anchorPos.x, y: hand.anchorPos.y };
                                     } else {
                                         // If it is a fist, make sure the arpeggio is stopped
                                         _this1.musicManager.stopArpeggio(i);

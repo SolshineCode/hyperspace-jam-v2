@@ -1,81 +1,60 @@
 import * as Tone from 'https://esm.sh/tone';
 
-// Celestial Music Engine for Hyperspace Jam
+// Gesture-Driven Music Engine for Hyperspace Jam
+// No clock, no metronome — all sound triggered by hand movement
 export class MusicManager {
     constructor() {
-        this.polySynth = null;
+        // Synths
+        this.padSynths = new Map();      // handId -> Tone.Synth (sustained drone)
+        this.pluckSynth = null;          // shared PluckSynth for finger triggers
+        this.kickSynth = null;           // MembraneSynth for downward hits
+        this.hatSynth = null;            // NoiseSynth for sideways hits
+
+        // Effects
         this.reverb = null;
         this.delay = null;
         this.chorus = null;
-        this.filter = null;
         this.analyser = null;
-        this.isStarted = false;
-        this.activePatterns = new Map();
-        this.handVolumes = new Map();
 
-        this.synthPresets = [
-            // Preset 1: "Celestial Pluck" — crystal singing bowls in a cathedral
+        // State tracking
+        this.isStarted = false;
+        this.handVolumes = new Map();
+        this.fingerCooldowns = new Map(); // handId -> { index: timestamp, middle: timestamp, ... }
+        this.percCooldown = 0;            // global percussion cooldown timestamp
+
+        this.FINGER_COOLDOWN_MS = 200;
+        this.PERC_COOLDOWN_MS = 150;
+        this.HAND_VELOCITY_THRESHOLD = 0.15;
+
+        // Finger -> semitone interval mapping
+        this.fingerIntervals = {
+            index: 0,    // root
+            middle: 3,   // minor third
+            ring: 7,     // fifth
+            pinky: 12    // octave
+        };
+
+        // C Minor Pentatonic scale for root note mapping
+        this.scale = ['C2', 'Eb2', 'F2', 'G2', 'Bb2', 'C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4'];
+
+        // Pad timbre presets
+        this.padPresets = [
             {
-                harmonicity: 4,
-                modulationIndex: 14,
+                name: 'Cosmic Drone',
                 oscillator: { type: 'sine' },
-                envelope: {
-                    attack: 0.001,
-                    decay: 0.3,
-                    sustain: 0.02,
-                    release: 1.5
-                },
-                modulation: { type: 'triangle' },
-                modulationEnvelope: {
-                    attack: 0.001,
-                    decay: 0.15,
-                    sustain: 0.1,
-                    release: 0.8
-                }
+                envelope: { attack: 0.8, decay: 0, sustain: 1, release: 2.0 }
             },
-            // Preset 2: "Deep Space Bass" — standing inside a bass speaker
             {
-                harmonicity: 0.25,
-                modulationIndex: 25,
+                name: 'Crystal Bell',
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.3, decay: 0.1, sustain: 0.9, release: 1.5 }
+            },
+            {
+                name: 'Deep Ocean',
                 oscillator: { type: 'sawtooth' },
-                envelope: {
-                    attack: 0.05,
-                    decay: 0.6,
-                    sustain: 0.5,
-                    release: 1.2
-                },
-                modulation: { type: 'square' },
-                modulationEnvelope: {
-                    attack: 0.1,
-                    decay: 0.4,
-                    sustain: 0.6,
-                    release: 1.0
-                }
-            },
-            // Preset 3: "Astral Choir" — ethereal angelic pad wash
-            {
-                harmonicity: 3,
-                modulationIndex: 6,
-                oscillator: { type: 'sine' },
-                envelope: {
-                    attack: 0.5,
-                    decay: 1.5,
-                    sustain: 0.9,
-                    release: 3.0
-                },
-                modulation: { type: 'sine' },
-                modulationEnvelope: {
-                    attack: 0.3,
-                    decay: 0.8,
-                    sustain: 0.7,
-                    release: 2.0
-                }
+                envelope: { attack: 1.2, decay: 0.3, sustain: 0.8, release: 3.0 }
             }
         ];
-
-        // C Minor Pentatonic spanning 2 octaves
-        this.scaleIntervals = [-12, -9, -7, -5, -2, 0, 3, 5, 7, 10, 12];
-
         this.currentSynthIndex = 0;
     }
 
@@ -84,162 +63,268 @@ export class MusicManager {
 
         await Tone.start();
 
-        // Cavernous reverb
+        // --- Effects Chain ---
+
+        // Reverb (shared endpoint)
         this.reverb = new Tone.Reverb({
-            decay: 10,
-            preDelay: 0.05,
-            wet: 0.5
+            decay: 8,
+            preDelay: 0.04,
+            wet: 0.4
         }).toDestination();
 
-        // Stereo ping-pong delay for width
-        this.delay = new Tone.PingPongDelay("4n.", 0.35).connect(this.reverb);
-        this.delay.wet.value = 0.25;
+        // Delay for pluck notes -> reverb
+        this.delay = new Tone.FeedbackDelay({
+            delayTime: '8n.',
+            feedback: 0.3,
+            wet: 0.25
+        }).connect(this.reverb);
 
-        // Waveform analyser
-        this.analyser = new Tone.Analyser('waveform', 1024);
-        this.analyser.connect(this.delay);
-
-        // Chorus for shimmer and stereo width
-        this.chorus = new Tone.Chorus(4, 2.5, 0.5).connect(this.analyser);
+        // Chorus for pad -> reverb
+        this.chorus = new Tone.Chorus({
+            frequency: 3,
+            delayTime: 3.5,
+            depth: 0.6
+        }).connect(this.reverb);
         this.chorus.start();
 
-        // Proximity low-pass filter
-        this.filter = new Tone.Filter(20000, 'lowpass').connect(this.chorus);
+        // Analyser for visualization (tap from reverb output)
+        this.analyser = new Tone.Analyser('waveform', 1024);
+        this.reverb.connect(this.analyser);
 
-        // PolySynth -> Filter -> Chorus -> Analyser -> PingPongDelay -> Reverb -> Destination
-        this.polySynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 16,
-            ...this.synthPresets[this.currentSynthIndex]
+        // --- Layer 2: Pluck Synth ---
+        this.pluckSynth = new Tone.PolySynth(Tone.FMSynth, {
+            maxPolyphony: 8,
+            harmonicity: 3,
+            modulationIndex: 10,
+            oscillator: { type: 'sine' },
+            envelope: {
+                attack: 0.001,
+                decay: 0.25,
+                sustain: 0.01,
+                release: 0.8
+            },
+            modulation: { type: 'triangle' },
+            modulationEnvelope: {
+                attack: 0.001,
+                decay: 0.1,
+                sustain: 0.05,
+                release: 0.5
+            }
         });
-        this.polySynth.connect(this.filter);
-        this.polySynth.volume.value = -6;
+        this.pluckSynth.connect(this.delay);
+        this.pluckSynth.volume.value = -4;
+
+        // --- Layer 3: Percussion ---
+        // Kick / thump
+        this.kickSynth = new Tone.MembraneSynth({
+            pitchDecay: 0.05,
+            octaves: 6,
+            oscillator: { type: 'sine' },
+            envelope: {
+                attack: 0.001,
+                decay: 0.3,
+                sustain: 0,
+                release: 0.4
+            }
+        }).toDestination();
+        this.kickSynth.volume.value = -6;
+
+        // Hi-hat / noise burst
+        this.hatSynth = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: {
+                attack: 0.001,
+                decay: 0.08,
+                sustain: 0,
+                release: 0.03
+            }
+        }).toDestination();
+        this.hatSynth.volume.value = -10;
 
         this.isStarted = true;
-
-        Tone.Transport.bpm.value = 120;
-        Tone.Transport.start();
-
-        console.log("Tone.js AudioContext started — Celestial engine ready.");
+        console.log('Gesture-driven music engine ready — no clock, all expression.');
     }
+
+    // --- Pad Management (Layer 1) ---
 
     startArpeggio(handId, rootNote) {
-        if (!this.polySynth || this.activePatterns.has(handId)) return;
+        if (!this.isStarted || this.padSynths.has(handId)) return;
 
-        const chord = Tone.Frequency(rootNote).harmonize(this.scaleIntervals);
-        const arpeggioNotes = chord.map(freq => Tone.Frequency(freq).toNote());
+        const preset = this.padPresets[this.currentSynthIndex];
+        const pad = new Tone.Synth({
+            oscillator: { ...preset.oscillator },
+            envelope: { ...preset.envelope }
+        });
+        pad.connect(this.chorus);
+        pad.volume.value = -12;
 
-        const pattern = new Tone.Pattern((time, note) => {
-            const velocity = this.handVolumes.get(handId) || 0.2;
-            this.polySynth.triggerAttackRelease(note, "8n", time, velocity);
-        }, arpeggioNotes, "alternateUp");
+        // Start sustained tone
+        const freq = Tone.Frequency(rootNote).toFrequency();
+        pad.triggerAttack(freq, Tone.now());
 
-        pattern.interval = "16n";
-        pattern.start(0);
-
-        this.activePatterns.set(handId, { pattern, currentRoot: rootNote });
-    }
-
-    updateArpeggioVolume(handId, velocity) {
-        if (this.polySynth && this.activePatterns.has(handId)) {
-            const clampedVelocity = Math.max(0, Math.min(1, velocity));
-            this.handVolumes.set(handId, clampedVelocity);
-            this.polySynth.volume.value = Tone.gainToDb(clampedVelocity) - 6;
-        }
+        this.padSynths.set(handId, { synth: pad, currentRoot: rootNote });
+        this.handVolumes.set(handId, 0.2);
+        this.fingerCooldowns.set(handId, { index: 0, middle: 0, ring: 0, pinky: 0 });
     }
 
     updateArpeggio(handId, newRootNote) {
-        const activePattern = this.activePatterns.get(handId);
-        if (!this.polySynth || !activePattern || activePattern.currentRoot === newRootNote) return;
+        const padData = this.padSynths.get(handId);
+        if (!padData || padData.currentRoot === newRootNote) return;
 
-        const newChord = Tone.Frequency(newRootNote).harmonize(this.scaleIntervals);
-        activePattern.pattern.values = newChord.map(freq => Tone.Frequency(freq).toNote());
-        activePattern.currentRoot = newRootNote;
+        // Smooth portamento glide
+        const freq = Tone.Frequency(newRootNote).toFrequency();
+        padData.synth.frequency.rampTo(freq, 0.15);
+        padData.currentRoot = newRootNote;
+    }
+
+    updateArpeggioVolume(handId, velocity) {
+        const padData = this.padSynths.get(handId);
+        if (!padData) return;
+
+        const clamped = Math.max(0, Math.min(1, velocity));
+        this.handVolumes.set(handId, clamped);
+        // Map 0-1 to -30dB to -4dB range
+        const db = -30 + clamped * 26;
+        padData.synth.volume.rampTo(db, 0.1);
     }
 
     stopArpeggio(handId) {
-        const activePattern = this.activePatterns.get(handId);
-        if (activePattern) {
-            activePattern.pattern.stop(0);
-            activePattern.pattern.dispose();
-            this.activePatterns.delete(handId);
+        const padData = this.padSynths.get(handId);
+        if (padData) {
+            padData.synth.triggerRelease(Tone.now());
+            // Dispose after release tail
+            setTimeout(() => {
+                padData.synth.dispose();
+            }, 3000);
+            this.padSynths.delete(handId);
             this.handVolumes.delete(handId);
+            this.fingerCooldowns.delete(handId);
+        }
+    }
 
-            if (this.activePatterns.size === 0) {
-                this.polySynth.volume.value = -Infinity;
+    // --- Gesture Processing (called per frame) ---
+
+    updateGesture(handId, gestureData) {
+        if (!this.isStarted) return;
+
+        const {
+            fingerStates,
+            prevFingerStates,
+            fingerVelocities,
+            handVelocity,
+            rootNote,
+            volume
+        } = gestureData;
+
+        const now = performance.now();
+        const cooldowns = this.fingerCooldowns.get(handId);
+        if (!cooldowns) return;
+
+        // --- Layer 2: Pluck notes on finger extension ---
+        for (const finger of ['index', 'middle', 'ring', 'pinky']) {
+            const justExtended = fingerStates[finger] && !prevFingerStates[finger];
+            const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
+
+            if (justExtended && offCooldown) {
+                cooldowns[finger] = now;
+
+                // Calculate note: root + interval for this finger
+                const rootFreq = Tone.Frequency(rootNote).toFrequency();
+                const semitones = this.fingerIntervals[finger];
+                const noteFreq = rootFreq * Math.pow(2, semitones / 12);
+                const noteName = Tone.Frequency(noteFreq).toNote();
+
+                // Velocity from finger movement speed
+                const vel = Math.max(0.1, Math.min(0.8, (fingerVelocities[finger] || 0.3)));
+
+                this.pluckSynth.triggerAttackRelease(noteName, '8n', Tone.now(), vel);
+            }
+        }
+
+        // --- Layer 3: Percussive hits on sharp hand movement ---
+        if ((now - this.percCooldown) > this.PERC_COOLDOWN_MS) {
+            const vx = handVelocity?.x || 0;
+            const vy = handVelocity?.y || 0;
+            const magnitude = Math.sqrt(vx * vx + vy * vy);
+
+            if (magnitude > this.HAND_VELOCITY_THRESHOLD) {
+                this.percCooldown = now;
+
+                if (vy > this.HAND_VELOCITY_THRESHOLD) {
+                    // Downward movement -> kick thump
+                    const intensity = Math.min(1, vy * 3);
+                    this.kickSynth.triggerAttackRelease('C1', '8n', Tone.now(), intensity);
+                } else if (Math.abs(vx) > this.HAND_VELOCITY_THRESHOLD) {
+                    // Sideways movement -> hi-hat noise burst
+                    const intensity = Math.min(1, Math.abs(vx) * 3);
+                    this.hatSynth.triggerAttackRelease('16n', Tone.now(), intensity);
+                }
             }
         }
     }
 
-    cycleSynth() {
-        if (!this.polySynth) return;
+    // --- Finger Expression (effects modulation) ---
 
-        // Stop all active arpeggios
-        this.activePatterns.forEach((_, key) => this.stopArpeggio(key));
-
-        this.polySynth.dispose();
-
-        this.currentSynthIndex = (this.currentSynthIndex + 1) % this.synthPresets.length;
-        const newPreset = this.synthPresets[this.currentSynthIndex];
-
-        this.polySynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 16,
-            ...newPreset
-        });
-        this.polySynth.connect(this.filter);
-        this.polySynth.volume.value = -6;
-
-        console.log(`Switched to synth preset ${this.currentSynthIndex}: ${['Celestial Pluck', 'Deep Space Bass', 'Astral Choir'][this.currentSynthIndex]}`);
-    }
-
-    /**
-     * Set proximity-based low-pass filter.
-     * @param {number} value — 0 (far, clear) to 1 (close, filtered)
-     */
-    setProximityFilter(value) {
-        if (!this.filter) return;
-        const cutoff = 20000 - value * 19600;
-        this.filter.frequency.rampTo(cutoff, 0.1);
-    }
-
-    /**
-     * Update expressive finger controls (called per-frame from game.js)
-     * @param {object} params — { middleFinger, ringFinger, pinkyFinger, handSpread }
-     *   Each finger value is 0-1 (0=curled, 1=fully extended)
-     *   handSpread is 0-1 (0=fingers together, 1=fingers wide apart)
-     */
     updateFingerExpression(params) {
         if (!this.isStarted) return;
 
         const { middleFinger, ringFinger, pinkyFinger, handSpread } = params;
 
-        // Middle finger → delay wet amount (raised = more spacey echo)
-        if (this.delay) {
-            this.delay.wet.value = 0.0 + middleFinger * 0.45; // 0.0-0.45
-        }
-
-        // Ring finger → reverb wet amount (raised = cavernous wash)
+        // Middle finger -> reverb wet (subtle wash)
         if (this.reverb) {
-            this.reverb.wet.value = 0.2 + ringFinger * 0.5; // 0.2-0.7
+            this.reverb.wet.value = 0.2 + middleFinger * 0.5;
         }
 
-        // Pinky finger → arpeggio speed (raised = faster pattern)
-        const activePattern = this.activePatterns.get(0);
-        if (activePattern) {
-            const intervals = ["8n", "8n.", "4n.", "16n", "16n.", "32n"];
-            const idx = Math.min(Math.floor(pinkyFinger * intervals.length), intervals.length - 1);
-            if (activePattern.pattern.interval !== intervals[idx]) {
-                activePattern.pattern.interval = intervals[idx];
-            }
+        // Ring finger -> delay feedback (echo amount)
+        if (this.delay) {
+            this.delay.feedback.value = 0.1 + ringFinger * 0.5;
         }
 
-        // Hand spread → modulation index (wider = richer, more complex timbre)
-        if (this.polySynth) {
-            const modIdx = 4 + handSpread * 24; // 4-28 range
-            try {
-                this.polySynth.set({ modulationIndex: modIdx });
-            } catch (e) {
-                // Some presets may not support this — silently ignore
-            }
+        // Pinky -> chorus rate (shimmer speed)
+        if (this.chorus) {
+            this.chorus.frequency.value = 1 + pinkyFinger * 8;
+        }
+
+        // Hand spread -> pad detune (wider = thicker)
+        this.padSynths.forEach(padData => {
+            padData.synth.detune.rampTo(handSpread * 30, 0.1);
+        });
+    }
+
+    // --- Timbre Cycling ---
+
+    cycleSynth() {
+        if (!this.isStarted) return;
+
+        // Store active pad states
+        const activePads = [];
+        this.padSynths.forEach((padData, handId) => {
+            activePads.push({ handId, root: padData.currentRoot });
+            padData.synth.triggerRelease(Tone.now());
+            setTimeout(() => padData.synth.dispose(), 2000);
+        });
+        this.padSynths.clear();
+
+        // Advance preset
+        this.currentSynthIndex = (this.currentSynthIndex + 1) % this.padPresets.length;
+        const preset = this.padPresets[this.currentSynthIndex];
+
+        console.log(`Switched to pad preset ${this.currentSynthIndex}: ${preset.name}`);
+
+        // Restart pads with new timbre
+        setTimeout(() => {
+            activePads.forEach(({ handId, root }) => {
+                this.startArpeggio(handId, root);
+            });
+        }, 100);
+    }
+
+    // --- Proximity Filter ---
+
+    setProximityFilter(value) {
+        // Apply subtle filtering via chorus depth as proxy
+        if (this.chorus) {
+            this.chorus.depth = 0.3 + value * 0.7;
         }
     }
 
