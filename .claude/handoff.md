@@ -1,11 +1,15 @@
-# Hyperspace Jam — Session Handoff (2026-03-22 final)
+# Hyperspace Jam — Session Handoff (2026-03-22 final-final)
 
-## Current State
+## STATUS: Working but crashes after extended use
+
+The app loads, tracks hands, plays gesture-driven music, shows psychedelic effects. But it crashes after a few minutes of use — likely memory leak from per-frame geometry creation/disposal.
+
+## Links
 - **HF Space**: https://huggingface.co/spaces/Solshine/hyperspace-jam
 - **Direct URL**: https://solshine-hyperspace-jam.static.hf.space/index.html
 - **GitHub**: https://github.com/SolshineCode/hyperspace-jam-v2
 - **Working dir**: C:\Users\caleb\hyperspace-jam-v2
-- **Deploy dir**: C:\Users\caleb\hyperspace-jam-v2-clean (copy files here, then HfApi.upload_folder)
+- **Deploy dir**: C:\Users\caleb\hyperspace-jam-v2-clean
 
 ## Deploy Command
 ```bash
@@ -14,80 +18,54 @@ cp /c/Users/caleb/hyperspace-jam-v2/*.js /c/Users/caleb/hyperspace-jam-v2/*.html
 python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type='space', ignore_patterns=['.git*'])"
 ```
 
-## What Works
-- Webcam + MediaPipe hand tracking (2 hands)
-- EDM synth engine (3 presets: Pluck, Acid Bass, Pad) at 128 BPM
-- Drum patterns on hand 2
-- Hand skeleton visualization (lines + circles)
-- Mandala geometry (pentagram, rays, rings)
-- Psychedelic hue-rotating webcam filter
+## PRIORITY 1: Fix Crash (Memory Leak)
+
+### Likely causes:
+1. **ShapeManager.js** — `update()` clears ALL group children and recreates geometry every frame. Should reuse geometry and only update positions.
+2. **MandalaVisualizer.js** — same pattern, disposes and recreates every frame
+3. **MusicManager.js stopArpeggio()** — `setTimeout(() => synth.dispose(), 3000)` can accumulate if called rapidly. Add tracking to prevent duplicates.
+4. **SVG turbulence filter** — updating DOM attributes 60x/sec may cause browser layout thrashing
+
+### Fix approach:
+- ShapeManager: pre-allocate node meshes and edge meshes in constructor, reuse them, only update positions in update()
+- MandalaVisualizer: same — pre-allocate, reuse
+- MusicManager: track pending disposals, cancel duplicates
+- DisplacementFilter: throttle SVG attribute updates to 15fps instead of 60fps
+
+## PRIORITY 2: Features That Need Testing
+- Gesture-driven music (pad + pluck + percussion layers)
 - Per-finger expression controls (delay, reverb, speed, timbre)
-- Displacement filter (ON by default, toggle 'D')
-- Background Poincaré shader (semi-transparent, audio-reactive)
+- ShapeManager pinch detection (fingertip anchors)
+- ShapeTessellationShader (internal Poincaré tessellation in shapes)
+- SVG turbulence displacement
 
-## CRITICAL: What Needs Fixing Next Session
+## PRIORITY 3: Remaining Phase 3 Features
+- Phase 3.5: Audio-geometry feedback (proximity filter, shape area → delay)
+- Phase 3.6: Multiplayer jam session (numHands: 4, treble+bass split)
 
-### 1. ShapeManager Rewrite (current implementation is wrong)
-The current ShapeManager ONLY creates anchors from pinch gestures. The reference video shows:
-- **Each fingertip (thumb, index, middle) is an INDEPENDENT anchor**
-- **Pinch = two fingertips merge into ONE anchor** (thumb+index touching = 1 anchor instead of 2)
-- **Un-pinched fingers are still separate anchors**
-- **Single hand can create triangle** (spread thumb + index + middle = 3 anchors = triangle)
-- **Two-hand pinch = 2 anchors = line** (left pinch + right pinch)
-- **Two-hand spread = 4 anchors = quad** (left thumb + left index + right thumb + right index)
-
-Current logic: only creates anchors from pinch detection → wrong.
-New logic:
-```
-for each hand:
-  if thumb+index pinching: 1 anchor (midpoint)
-  else: thumb tip = anchor, index tip = anchor
-  if middle finger extended and spread: middle tip = anchor too
-```
-
-### 2. Shapes Need to be MUCH More Visible
-- Line thickness: currently standard THREE.Line (1px) → needs 3-5px equivalent (use tube/mesh)
-- Node size: 6-8px rings → needs 15-20px
-- Color: pure white, high contrast
-- Z-depth scaling needs to be dramatic (2x-4x size change, not subtle 0.6-2.5x)
-
-### 3. Audio Needs to Sound More Polished/Profound
-Current audio issues:
-- Synth presets sound thin/basic
-- Effects chain is functional but not lush enough
-- No audio-shape interaction (proximity filter not implemented yet)
-
-Needed:
-- Richer FM synthesis parameters
-- Layer multiple voices for thickness
-- Proximity-to-camera → lowpass filter sweep + distortion (from vision spec)
-- Shape area → delay feedback amount
-- More musical note transitions (glide/portamento)
-
-### 4. Internal Tessellation
-ShapeTessellationShader.js exists but depends on ShapeManager providing correct anchor data. Fix ShapeManager first, then the tessellation should work.
-
-### 5. Multiplayer (Phase 3.6)
-Not yet implemented. Plan in `.claude/plans/cozy-wiggling-acorn.md`
+## What Works Well
+- Webcam + MediaPipe hand tracking in HF Spaces
+- EDM gesture-driven music (3 layers: pad, pluck, percussion)
+- Hand skeleton visualization (magenta lines, cyan dots)
+- Mandala geometry (pentagram, rays, rings)
+- Psychedelic hue-rotating webcam filter (fast, dramatic)
+- SVG turbulence displacement (organic per-pixel warping)
+- Displacement ON by default, toggle with 'D'
+- Top bar shows control instructions
+- Labels on hands: "PAD: note", "WIGGLE FINGERS TO PLAY"
 
 ## Key Files
-| File | Lines | Purpose |
-|------|-------|---------|
-| game.js | ~1460 | Main orchestrator (TRANSPILED, surgical edits only) |
-| ShapeManager.js | ~320 | Pinch shapes — NEEDS REWRITE per above |
-| ShapeTessellationShader.js | ~150 | Internal Poincaré shader for shapes |
-| DisplacementFilter.js | ~55 | Trippy CSS displacement (ON by default) |
-| WaveformVisualizer.js | ~200 | Background Poincaré shader + breathing |
-| MandalaVisualizer.js | ~175 | Sacred geometry between fingers |
-| MusicManager.js | ~220 | Tone.js EDM synth engine |
-| DrumManager.js | ~250 | Drum sequencer (transpiled) |
-| index.html | ~55 | Page shell |
-| styles.css | ~90 | Dark kiosk styling |
+| File | Lines | Status |
+|------|-------|--------|
+| game.js | ~1480 | TRANSPILED — many surgical edits, handle with care |
+| ShapeManager.js | ~435 | Rewritten — correct anchor logic, NEEDS optimization |
+| ShapeTessellationShader.js | ~200 | Has `ctr` rename fix, otherwise untested |
+| DisplacementFilter.js | ~115 | SVG turbulence, working |
+| WaveformVisualizer.js | ~200 | Poincaré shader + breathing, working |
+| MandalaVisualizer.js | ~175 | Working but leaks geometry |
+| MusicManager.js | ~340 | Gesture-driven, working, needs disposal fix |
+| DrumManager.js | ~250 | Unchanged from arpeggiator, stable |
 
 ## Reference Docs
-- `.claude/vision-reference.md` — Full interaction spec from Instagram reel analysis
+- `.claude/vision-reference.md` — Instagram reel interaction spec + multiplayer spec
 - `.claude/plans/cozy-wiggling-acorn.md` — Phase 3 implementation plan
-
-## HF Auth
-- Logged in via `huggingface-cli login` with token `ForClaudeCode`
-- Binary assets need Xet storage (HfApi handles automatically)
