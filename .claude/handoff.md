@@ -1,92 +1,93 @@
-# Hyperspace Jam — Session Handoff (2026-03-22, updated end of session)
+# Hyperspace Jam — Session Handoff (2026-03-22 final)
 
-## What Was Accomplished
+## Current State
+- **HF Space**: https://huggingface.co/spaces/Solshine/hyperspace-jam
+- **Direct URL**: https://solshine-hyperspace-jam.static.hf.space/index.html
+- **GitHub**: https://github.com/SolshineCode/hyperspace-jam-v2
+- **Working dir**: C:\Users\caleb\hyperspace-jam-v2
+- **Deploy dir**: C:\Users\caleb\hyperspace-jam-v2-clean (copy files here, then HfApi.upload_folder)
 
-### Phase 1: React+Vite Approach (abandoned)
-- Built full React+R3F+Tone.js app with 5 agents
-- Webcam never worked in HF Spaces iframe due to bundling issues
-- Code is in `C:\Users\caleb\hyperspace-jam` (GitHub PR #1 on SolshineCode/hyperspace-jam)
-
-### Phase 2: Fork arpeggiator-test (current working approach)
-- Forked gaganyatri/arpeggiator-test as base (vanilla JS, ESM imports from CDN)
-- Webcam + hand tracking + audio all work in HF Spaces iframe
-- Working directory: `C:\Users\caleb\hyperspace-jam-v2`
-- Deploy directory: `C:\Users\caleb\hyperspace-jam-v2-clean` (used for HF uploads)
-- HF Space: https://huggingface.co/spaces/Solshine/hyperspace-jam
-- Direct URL: https://solshine-hyperspace-jam.static.hf.space/index.html
-
-### Transformations Applied
-1. **WaveformVisualizer.js** → Poincaré {7,3} hyperbolic tessellation shader (semi-transparent, audio-reactive)
-2. **MusicManager.js** → 3 EDM presets (Hyperspace Pluck, Acid Bass, Ethereal Pad), 128 BPM, FeedbackDelay + Reverb
-3. **index.html + styles.css** → Dark kiosk UI, "STEP UP TO JAM", attract mode overlay, scale toggle
-4. **MandalaVisualizer.js** → NEW: Sacred geometry between fingers (pentagram, rays, rings, inter-hand bridges)
-5. **game.js** → Modified: psychedelic hue-rotating webcam filter, MandalaVisualizer integration, screen blend mode
-
-### Deploy Method
-```python
-from huggingface_hub import HfApi
-api = HfApi()
-api.upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type='space', ignore_patterns=['.git*'])
+## Deploy Command
+```bash
+cd /c/Users/caleb/hyperspace-jam-v2-clean
+cp /c/Users/caleb/hyperspace-jam-v2/*.js /c/Users/caleb/hyperspace-jam-v2/*.html /c/Users/caleb/hyperspace-jam-v2/*.css .
+python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type='space', ignore_patterns=['.git*'])"
 ```
-(Must run from the hyperspace-jam-v2-clean directory, which has the actual files without LFS)
 
-## What's Next — PHASE 3: Dynamic Geometric Shapes + Internal Tessellation
+## What Works
+- Webcam + MediaPipe hand tracking (2 hands)
+- EDM synth engine (3 presets: Pluck, Acid Bass, Pad) at 128 BPM
+- Drum patterns on hand 2
+- Hand skeleton visualization (lines + circles)
+- Mandala geometry (pentagram, rays, rings)
+- Psychedelic hue-rotating webcam filter
+- Per-finger expression controls (delay, reverb, speed, timbre)
+- Displacement filter (ON by default, toggle 'D')
+- Background Poincaré shader (semi-transparent, audio-reactive)
 
-See `.claude/vision-reference.md` for the full interaction spec (from Instagram reel analysis).
+## CRITICAL: What Needs Fixing Next Session
 
-### IMMEDIATE: Make existing effects more dramatic
-- Texture breathing is too subtle (5% scale) — increase to 15-20%
-- Pinch threshold (40px) may be too tight — try 60px
-- Mandala colors need more contrast/glow
-- Displacement filter needs bigger amplitude values
-- Background Poincaré shader at 0.45 alpha may be washing out — try making it more vivid
-- Per-finger expression controls (delay/reverb/speed) need user-visible labels
+### 1. ShapeManager Rewrite (current implementation is wrong)
+The current ShapeManager ONLY creates anchors from pinch gestures. The reference video shows:
+- **Each fingertip (thumb, index, middle) is an INDEPENDENT anchor**
+- **Pinch = two fingertips merge into ONE anchor** (thumb+index touching = 1 anchor instead of 2)
+- **Un-pinched fingers are still separate anchors**
+- **Single hand can create triangle** (spread thumb + index + middle = 3 anchors = triangle)
+- **Two-hand pinch = 2 anchors = line** (left pinch + right pinch)
+- **Two-hand spread = 4 anchors = quad** (left thumb + left index + right thumb + right index)
 
-### Priority 1: Pinch Detection + Dynamic Shape State
-- Detect pinch gesture (thumb tip + index tip distance < threshold)
-- Merge pinched fingers into single anchor point
-- Track active anchor count → determine shape state (line/triangle/quad)
-- Smooth transitions between states
+Current logic: only creates anchors from pinch detection → wrong.
+New logic:
+```
+for each hand:
+  if thumb+index pinching: 1 anchor (midpoint)
+  else: thumb tip = anchor, index tip = anchor
+  if middle finger extended and spread: middle tip = anchor too
+```
 
-### Priority 2: Internal Poincaré Tessellation Inside Shapes
-- When a closed shape forms, fill its interior with a Poincaré disk shader
-- Use a second ShaderMaterial on a dynamic mesh that conforms to the shape
-- Central focal point, tessellation gets denser toward edges
-- Re-tessellate in real-time as shape morphs
+### 2. Shapes Need to be MUCH More Visible
+- Line thickness: currently standard THREE.Line (1px) → needs 3-5px equivalent (use tube/mesh)
+- Node size: 6-8px rings → needs 15-20px
+- Color: pure white, high contrast
+- Z-depth scaling needs to be dramatic (2x-4x size change, not subtle 0.6-2.5x)
 
-### Priority 3: DMT-Chrome Iridescent Coloring
-- Shifting iridescent colors flowing along curved geometry
-- Pulsation rhythm synced to audio beat
-- Color intensity increases with finger spread
+### 3. Audio Needs to Sound More Polished/Profound
+Current audio issues:
+- Synth presets sound thin/basic
+- Effects chain is functional but not lush enough
+- No audio-shape interaction (proximity filter not implemented yet)
 
-### Priority 4: Z-Depth Rendering
-- Line thickness scales with hand Z-position (landmark.z or hand size proxy)
-- Node size scales similarly
-- Creates convincing 3D perspective effect
+Needed:
+- Richer FM synthesis parameters
+- Layer multiple voices for thickness
+- Proximity-to-camera → lowpass filter sweep + distortion (from vision spec)
+- Shape area → delay feedback amount
+- More musical note transitions (glide/portamento)
 
-### Priority 5: Audio-Geometry Feedback
-- Shape proximity to camera → distortion/low-pass filter on master bus
-- Shape area/complexity → additional audio parameters
-- Pulsation sync with Transport beat
+### 4. Internal Tessellation
+ShapeTessellationShader.js exists but depends on ShapeManager providing correct anchor data. Fix ShapeManager first, then the tessellation should work.
 
-### Also remaining:
-- Attract mode logic (30s timer)
-- Scale toggle button wiring
-- Per-finger controls are implemented but need testing post-bug-fix
+### 5. Multiplayer (Phase 3.6)
+Not yet implemented. Plan in `.claude/plans/cozy-wiggling-acorn.md`
 
 ## Key Files
-| File | Purpose |
-|------|---------|
-| game.js | Main orchestrator (67KB transpiled, surgical edits only) |
-| WaveformVisualizer.js | Poincaré shader background |
-| MusicManager.js | EDM synth engine |
-| DrumManager.js | 909 drum patterns (unchanged from arpeggiator) |
-| MandalaVisualizer.js | Sacred geometry finger visualizations |
-| index.html | Page shell + UI elements |
-| styles.css | Dark kiosk styling |
-| main.js | Entry point (5 lines, unchanged) |
+| File | Lines | Purpose |
+|------|-------|---------|
+| game.js | ~1460 | Main orchestrator (TRANSPILED, surgical edits only) |
+| ShapeManager.js | ~320 | Pinch shapes — NEEDS REWRITE per above |
+| ShapeTessellationShader.js | ~150 | Internal Poincaré shader for shapes |
+| DisplacementFilter.js | ~55 | Trippy CSS displacement (ON by default) |
+| WaveformVisualizer.js | ~200 | Background Poincaré shader + breathing |
+| MandalaVisualizer.js | ~175 | Sacred geometry between fingers |
+| MusicManager.js | ~220 | Tone.js EDM synth engine |
+| DrumManager.js | ~250 | Drum sequencer (transpiled) |
+| index.html | ~55 | Page shell |
+| styles.css | ~90 | Dark kiosk styling |
 
-## HF Credentials
+## Reference Docs
+- `.claude/vision-reference.md` — Full interaction spec from Instagram reel analysis
+- `.claude/plans/cozy-wiggling-acorn.md` — Phase 3 implementation plan
+
+## HF Auth
 - Logged in via `huggingface-cli login` with token `ForClaudeCode`
-- HF username: Solshine
-- Binary assets require Xet storage (handled by HfApi.upload_folder)
+- Binary assets need Xet storage (HfApi handles automatically)
