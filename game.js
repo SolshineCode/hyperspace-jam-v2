@@ -795,7 +795,26 @@ export var Game = /*#__PURE__*/ function() {
                                     var dx = thumbTip.x - indexTip.x;
                                     var dy = thumbTip.y - indexTip.y;
                                     var distance = Math.sqrt(dx * dx + dy * dy);
-                                    var velocity = Math.max(0, Math.min(1.0, distance * 5));
+                                    // Normalize by hand size so volume works at any camera distance
+                                    var wristPt = smoothedLandmarks[0];
+                                    var middleMcp = smoothedLandmarks[9];
+                                    var palmDx = wristPt.x - middleMcp.x;
+                                    var palmDy = wristPt.y - middleMcp.y;
+                                    var palmSize = Math.sqrt(palmDx * palmDx + palmDy * palmDy) || 0.01;
+                                    var normalizedDist = distance / palmSize;
+                                    var velocity = Math.max(0.05, Math.min(1.0, normalizedDist * 1.5));
+                                    // Compute average Z depth for wetness/proximity effect
+                                    var avgZ = 0;
+                                    for (var zi = 0; zi < smoothedLandmarks.length; zi++) {
+                                        avgZ += smoothedLandmarks[zi].z;
+                                    }
+                                    avgZ /= smoothedLandmarks.length;
+                                    // Map z: closer (more negative) = more wet, farther = drier
+                                    // Typical range: -0.15 (close) to 0 (far)
+                                    var proximity = Math.max(0, Math.min(1, (avgZ + 0.15) / -0.15));
+                                    if (_this1.musicManager.setProximityFilter) {
+                                        _this1.musicManager.setProximityFilter(proximity);
+                                    }
                                     _this1._updateHandLines(i, smoothedLandmarks, videoParams, canvasWidth, canvasHeight, {
                                         note: note,
                                         velocity: velocity,
