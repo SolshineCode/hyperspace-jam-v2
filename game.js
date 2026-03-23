@@ -689,7 +689,7 @@ export var Game = /*#__PURE__*/ function() {
                                             modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
                                             delegate: 'GPU'
                                         },
-                                        numHands: 4,
+                                        numHands: 2,
                                         runningMode: 'VIDEO'
                                     })
                                 ];
@@ -1573,7 +1573,7 @@ export var Game = /*#__PURE__*/ function() {
                     // Periodically check AudioContext hasn't been suspended by browser
                     if (!this._lastAudioCheck) this._lastAudioCheck = 0;
                     var now = performance.now();
-                    if (now - this._lastAudioCheck > 3000) {
+                    if (now - this._lastAudioCheck > 10000) {
                         this._lastAudioCheck = now;
                         this.musicManager.ensureAudioActive();
                     }
@@ -1673,13 +1673,18 @@ export var Game = /*#__PURE__*/ function() {
                         _this._restartGame();
                     }
                 });
-                // Multiplayer toggle
+                // Multiplayer toggle — recreates HandLandmarker with correct numHands
                 window._toggleMultiplayer = function() {
                     _this._multiplayerEnabled = !_this._multiplayerEnabled;
                     var statusEl = document.getElementById('mp-status');
                     if (statusEl) {
                         statusEl.textContent = _this._multiplayerEnabled ? 'ON' : 'OFF';
                         statusEl.className = _this._multiplayerEnabled ? 'mp-on' : 'mp-off';
+                    }
+                    var newNumHands = _this._multiplayerEnabled ? 4 : 2;
+                    // Recreate landmarker with new hand count
+                    if (_this.handLandmarker && _this.handLandmarker.setOptions) {
+                        _this.handLandmarker.setOptions({ numHands: newNumHands });
                     }
                     console.log('Multiplayer: ' + (_this._multiplayerEnabled ? 'ON (4 hands)' : 'OFF (2 hands)'));
                 };

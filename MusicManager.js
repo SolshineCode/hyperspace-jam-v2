@@ -44,7 +44,8 @@ export class MusicManager {
 
         this._smoothDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._smoothDrumDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
-        this._SMOOTH_ALPHA = 0.25;
+        this._SMOOTH_ALPHA = 0.4; // higher = more responsive, less smoothing
+        this._frameCount = 0; // throttle heavy updates to every 3rd frame
     }
 
     // Resume AudioContext if browser suspended it (called on clicks + periodically)
@@ -384,9 +385,13 @@ export class MusicManager {
 
         // INDEX: No effect (square/volume finger — fully independent)
 
+        // Throttle expensive continuous updates to every 3rd frame
+        this._frameCount++;
+        const doHeavyUpdate = (this._frameCount % 3 === 0);
+
         // === MIDDLE (ROOT): 303 Acid Squelch ===
         // Distance = filter cutoff. Close=dark rumble, extended=screaming acid.
-        if (this._acidFilter) {
+        if (this._acidFilter && doHeavyUpdate) {
             this._acidFilter.frequency.value = 200 + Math.pow(d.middle, 2) * 10000;
             this._acidFilter.Q.value = 6 + d.middle * 12;
         }
@@ -398,8 +403,8 @@ export class MusicManager {
                 );
             }
         }
-        if (this.middleContinuous) {
-            this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.05);
+        if (this.middleContinuous && doHeavyUpdate) {
+            this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.1);
         }
 
         // === RING (5th): Goa Pluck ===
@@ -413,20 +418,22 @@ export class MusicManager {
                 );
             }
         }
-        if (this._pluckDelay) {
-            this._pluckDelay.feedback.value = 0.2 + d.ring * 0.45;
-            this._pluckDelay.wet.value = 0.1 + d.ring * 0.5;
-        }
-        if (this._shimmerReverb) {
-            this._shimmerReverb.wet.value = 0.2 + d.ring * 0.6;
-        }
-        if (this.ringContinuous) {
-            this.ringContinuous.volume.rampTo(-35 + d.ring * 18, 0.05);
+        if (doHeavyUpdate) {
+            if (this._pluckDelay) {
+                this._pluckDelay.feedback.value = 0.2 + d.ring * 0.45;
+                this._pluckDelay.wet.value = 0.1 + d.ring * 0.5;
+            }
+            if (this._shimmerReverb) {
+                this._shimmerReverb.wet.value = 0.2 + d.ring * 0.6;
+            }
+            if (this.ringContinuous) {
+                this.ringContinuous.volume.rampTo(-35 + d.ring * 18, 0.1);
+            }
         }
 
         // === PINKY (m7): FM Laser Zap ===
         // Distance = FM depth + distortion. Close=subtle ping, extended=full laser blast
-        if (this.fingerSynths.pinky) {
+        if (this.fingerSynths.pinky && doHeavyUpdate) {
             try {
                 this.fingerSynths.pinky.modulationIndex.value = 2 + Math.pow(d.pinky, 1.5) * 35;
                 this.fingerSynths.pinky.harmonicity.value = 4 + d.pinky * 8;
@@ -439,15 +446,21 @@ export class MusicManager {
                 );
             }
         }
-        if (this.distortion) {
-            this.distortion.distortion = Math.pow(d.pinky, 1.5) * 0.6;
-            this.distortion.wet.value = d.pinky * 0.5;
-        }
-        if (this.pinkyContinuous) {
-            this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 20, 0.05);
+        if (doHeavyUpdate) {
+            if (this.distortion) {
+                this.distortion.distortion = Math.pow(d.pinky, 1.5) * 0.6;
+                this.distortion.wet.value = d.pinky * 0.5;
+            }
+            if (this.pinkyContinuous) {
+                this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 20, 0.1);
+            }
         }
 
-        // === WRIST ANGLE: Massive tonal modulation ===
+        // === WRIST ANGLE: Massive tonal modulation (throttled) ===
+        if (!doHeavyUpdate) {
+            // Skip wrist angle processing on non-heavy frames
+            // Still store prev extensions and handle triggers above
+        } else {
         // -1 = tilted left, 0 = straight up, +1 = tilted right
         // Controls: master filter cutoff, pad detune, delay time, chorus speed
         const wristAngle = gestureData.wristAngle || 0;
@@ -507,6 +520,8 @@ export class MusicManager {
         if (this.reverb) {
             this.reverb.wet.value = 0.15 + Math.max(d.ring, d.pinky) * 0.5;
         }
+
+        } // end doHeavyUpdate wrist angle block
 
         // Store for next frame
         for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
