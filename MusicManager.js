@@ -38,22 +38,22 @@ export class MusicManager {
         // C Minor Pentatonic scale for root note mapping
         this.scale = ['C2', 'Eb2', 'F2', 'G2', 'Bb2', 'C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4'];
 
-        // Pad timbre presets
+        // Pad timbre presets — psychedelic bass EDM
         this.padPresets = [
             {
-                name: 'Cosmic Drone',
+                name: 'Hypnotic Sub',
                 oscillator: { type: 'sine' },
-                envelope: { attack: 0.8, decay: 0, sustain: 1, release: 2.0 }
+                envelope: { attack: 0.4, decay: 0, sustain: 1, release: 1.5 }
             },
             {
-                name: 'Crystal Bell',
-                oscillator: { type: 'triangle' },
-                envelope: { attack: 0.3, decay: 0.1, sustain: 0.9, release: 1.5 }
-            },
-            {
-                name: 'Deep Ocean',
+                name: 'Acid Growl',
                 oscillator: { type: 'sawtooth' },
-                envelope: { attack: 1.2, decay: 0.3, sustain: 0.8, release: 3.0 }
+                envelope: { attack: 0.1, decay: 0.2, sustain: 0.85, release: 1.0 }
+            },
+            {
+                name: 'Trance Wash',
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.6, decay: 0.5, sustain: 0.9, release: 2.5 }
             }
         ];
         this.currentSynthIndex = 0;
@@ -64,86 +64,115 @@ export class MusicManager {
 
         await Tone.start();
 
-        // --- Effects Chain ---
+        // === EFFECTS CHAIN: Psychedelic Bass EDM ===
 
-        // Reverb (shared endpoint)
+        // Master limiter — protect speakers from bass peaks
+        this.limiter = new Tone.Limiter(-3).toDestination();
+
+        // Dark cavernous reverb
         this.reverb = new Tone.Reverb({
-            decay: 8,
-            preDelay: 0.04,
-            wet: 0.4
-        }).toDestination();
+            decay: 6,
+            preDelay: 0.03,
+            wet: 0.35
+        }).connect(this.limiter);
 
-        // Delay for pluck notes -> reverb
-        this.delay = new Tone.FeedbackDelay({
+        // Ping-pong delay for hypnotic echoes
+        this.delay = new Tone.PingPongDelay({
             delayTime: '8n.',
-            feedback: 0.3,
-            wet: 0.25
+            feedback: 0.35,
+            wet: 0.2
         }).connect(this.reverb);
 
-        // Chorus for pad -> reverb
-        this.chorus = new Tone.Chorus({
-            frequency: 3,
-            delayTime: 3.5,
-            depth: 0.6
+        // Phaser for psychedelic swirl on pad
+        this.phaser = new Tone.Phaser({
+            frequency: 0.4,
+            octaves: 3,
+            baseFrequency: 400
         }).connect(this.reverb);
+
+        // Chorus for width
+        this.chorus = new Tone.Chorus({
+            frequency: 2,
+            delayTime: 4,
+            depth: 0.7
+        }).connect(this.phaser);
         this.chorus.start();
 
-        // Analyser for visualization (tap from reverb output)
+        // Lowpass filter for proximity control
+        this.filter = new Tone.Filter(16000, 'lowpass').connect(this.chorus);
+
+        // Analyser for visualization
         this.analyser = new Tone.Analyser('waveform', 1024);
         this.reverb.connect(this.analyser);
 
-        // --- Layer 2: Pluck Synth (warm, harmonic, overlapping notes) ---
+        // === LAYER 2: Psychedelic Lead Pluck ===
         this.pluckSynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 10,
-            harmonicity: 2,          // octave relationship = consonant
-            modulationIndex: 3,      // very gentle FM = clean warm tone, no artifacts
+            maxPolyphony: 8,
+            harmonicity: 2,
+            modulationIndex: 3,
             oscillator: { type: 'sine' },
             envelope: {
-                attack: 0.003,
-                decay: 0.35,
-                sustain: 0.08,
-                release: 1.5          // long release = notes blend into each other
+                attack: 0.005,
+                decay: 0.4,
+                sustain: 0.05,
+                release: 1.8
             },
-            modulation: { type: 'sine' },  // sine mod = smoother harmonics
+            modulation: { type: 'sine' },
             modulationEnvelope: {
                 attack: 0.005,
-                decay: 0.15,
-                sustain: 0.1,
-                release: 0.8
+                decay: 0.2,
+                sustain: 0.08,
+                release: 1.0
             }
         });
         this.pluckSynth.connect(this.delay);
-        this.pluckSynth.volume.value = -6;
+        this.pluckSynth.volume.value = -8;
 
-        // --- Layer 3: Percussion ---
-        // Kick / thump
+        // === LAYER 3: Sub-Bass (always-on low foundation) ===
+        this.subBass = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.3, decay: 0, sustain: 1, release: 0.8 }
+        }).connect(this.limiter);  // sub goes direct — no effects muddying it
+        this.subBass.volume.value = -18;
+
+        // Sub-bass wobble LFO — gentle psychedelic pulse (not aggressive dubstep)
+        this.wobbleLFO = new Tone.LFO({
+            frequency: 0.3,
+            min: -22,
+            max: -12     // narrower range = less buzzy
+        });
+        this.wobbleLFO.connect(this.subBass.volume);
+        this.wobbleLFO.start();
+
+        // === LAYER 4: Heavy Percussion ===
+        // Deep bass kick — heavy, with pitch sweep
         this.kickSynth = new Tone.MembraneSynth({
-            pitchDecay: 0.05,
-            octaves: 6,
+            pitchDecay: 0.08,
+            octaves: 8,
             oscillator: { type: 'sine' },
             envelope: {
                 attack: 0.001,
-                decay: 0.3,
+                decay: 0.5,
                 sustain: 0,
-                release: 0.4
+                release: 0.5
             }
-        }).toDestination();
-        this.kickSynth.volume.value = -6;
+        }).connect(this.limiter);
+        this.kickSynth.volume.value = -4;
 
-        // Hi-hat / noise burst
+        // Hi-hat — filtered noise burst
         this.hatSynth = new Tone.NoiseSynth({
             noise: { type: 'white' },
             envelope: {
                 attack: 0.001,
-                decay: 0.08,
+                decay: 0.06,
                 sustain: 0,
-                release: 0.03
+                release: 0.02
             }
-        }).toDestination();
-        this.hatSynth.volume.value = -10;
+        }).connect(this.limiter);
+        this.hatSynth.volume.value = -12;
 
         this.isStarted = true;
-        console.log('Gesture-driven music engine ready — no clock, all expression.');
+        console.log('Psychedelic Bass EDM engine ready — gesture-driven, no clock.');
     }
 
     // --- Pad Management (Layer 1) ---
@@ -153,26 +182,31 @@ export class MusicManager {
 
         const preset = this.padPresets[this.currentSynthIndex];
 
-        // Root pad voice
+        // Root pad voice — goes through filter → chorus → phaser → reverb
         const pad = new Tone.Synth({
             oscillator: { ...preset.oscillator },
             envelope: { ...preset.envelope }
         });
-        pad.connect(this.chorus);
-        pad.volume.value = -12;
+        pad.connect(this.filter);
+        pad.volume.value = -10;
 
-        // Harmony voice — a perfect fifth above, quieter, for natural richness
+        // Harmony voice — detuned fifth for thick psychedelic texture
         const harmonyPad = new Tone.Synth({
             oscillator: { ...preset.oscillator },
             envelope: { ...preset.envelope }
         });
-        harmonyPad.connect(this.chorus);
-        harmonyPad.volume.value = -18; // subtle, sits behind the root
+        harmonyPad.connect(this.filter);
+        harmonyPad.volume.value = -16;
 
         // Start sustained tones
         const freq = Tone.Frequency(rootNote).toFrequency();
         pad.triggerAttack(freq, Tone.now());
-        harmonyPad.triggerAttack(freq * 1.498, Tone.now()); // ~perfect fifth (slightly detuned for shimmer)
+        harmonyPad.triggerAttack(freq * 1.498, Tone.now());
+
+        // Also trigger sub-bass at the root (one octave below for weight)
+        if (this.subBass) {
+            this.subBass.triggerAttack(freq / 2, Tone.now());
+        }
 
         this.padSynths.set(handId, { synth: pad, harmonySynth: harmonyPad, currentRoot: rootNote });
         this.handVolumes.set(handId, 0.2);
@@ -183,11 +217,14 @@ export class MusicManager {
         const padData = this.padSynths.get(handId);
         if (!padData || padData.currentRoot === newRootNote) return;
 
-        // Smooth portamento glide — both voices
+        // Smooth portamento glide — all voices
         const freq = Tone.Frequency(newRootNote).toFrequency();
         padData.synth.frequency.rampTo(freq, 0.15);
         if (padData.harmonySynth) {
             padData.harmonySynth.frequency.rampTo(freq * 1.498, 0.15);
+        }
+        if (this.subBass) {
+            this.subBass.frequency.rampTo(freq / 2, 0.2); // sub glides slower for weight
         }
         padData.currentRoot = newRootNote;
     }
@@ -210,6 +247,10 @@ export class MusicManager {
         if (padData) {
             padData.synth.triggerRelease(Tone.now());
             if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
+            // Release sub-bass when last pad stops
+            if (this.padSynths.size <= 1 && this.subBass) {
+                this.subBass.triggerRelease(Tone.now());
+            }
 
             if (!this._pendingDisposals) this._pendingDisposals = new Set();
             const synths = [padData.synth, padData.harmonySynth].filter(Boolean);
@@ -296,24 +337,32 @@ export class MusicManager {
 
         const { middleFinger, ringFinger, pinkyFinger, handSpread } = params;
 
-        // Middle finger -> reverb wet (subtle wash)
-        if (this.reverb) {
-            this.reverb.wet.value = 0.2 + middleFinger * 0.5;
+        // Middle finger → phaser intensity (psychedelic swirl)
+        if (this.phaser) {
+            this.phaser.wet.value = 0.2 + middleFinger * 0.6;
         }
 
-        // Ring finger -> delay feedback (echo amount)
+        // Ring finger → delay feedback (echo intensity)
         if (this.delay) {
-            this.delay.feedback.value = 0.1 + ringFinger * 0.5;
+            this.delay.feedback.value = 0.15 + ringFinger * 0.45;
         }
 
-        // Pinky -> chorus rate (shimmer speed)
-        if (this.chorus) {
-            this.chorus.frequency.value = 1 + pinkyFinger * 8;
+        // Pinky → reverb depth (space size)
+        if (this.reverb) {
+            this.reverb.wet.value = 0.2 + pinkyFinger * 0.4;
         }
 
-        // Hand spread -> pad detune (wider = thicker)
+        // Hand spread → wobble LFO speed (wider = faster wobble = aggressive bass)
+        if (this.wobbleLFO) {
+            this.wobbleLFO.frequency.value = 0.2 + handSpread * 6; // 0.2Hz slow → 6.2Hz fast wobble
+        }
+
+        // Hand spread also → pad detune (wider = thicker, more detuned)
         this.padSynths.forEach(padData => {
-            padData.synth.detune.rampTo(handSpread * 30, 0.1);
+            padData.synth.detune.rampTo(handSpread * 40, 0.1);
+            if (padData.harmonySynth) {
+                padData.harmonySynth.detune.rampTo(-handSpread * 25, 0.1); // opposite detune = wide stereo
+            }
         });
     }
 

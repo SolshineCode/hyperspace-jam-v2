@@ -458,6 +458,21 @@ export var Game = /*#__PURE__*/ function() {
                     if (e.code === 'KeyD') {
                         if (gameRef.displacementFilter) gameRef.displacementFilter.toggle();
                     }
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        // Panic — silence everything
+                        if (gameRef.musicManager) {
+                            gameRef.musicManager.stopArpeggio(0);
+                            gameRef.musicManager.stopArpeggio(1);
+                            if (gameRef.musicManager.subBass) {
+                                gameRef.musicManager.subBass.triggerRelease();
+                            }
+                            if (gameRef.musicManager.pluckSynth) {
+                                gameRef.musicManager.pluckSynth.releaseAll();
+                            }
+                        }
+                        console.log('PANIC — all sound stopped');
+                    }
                 });
                 var ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
                 this.scene.add(ambientLight);

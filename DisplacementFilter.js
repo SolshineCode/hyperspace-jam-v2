@@ -124,10 +124,21 @@ export class DisplacementFilter {
         this.displacement.setAttribute('scale', String(videoScale));
         this.displacement2.setAttribute('scale', String(canvasScale));
 
-        // Gentle CSS transform for additional macro-movement
-        var breathScale = 1.0 + 0.008 * Math.sin(this.time * 0.8);
-        this.canvas.style.transform = 'scale(' + breathScale + ')';
-        this.video.style.transform = 'scaleX(-1) scale(' + breathScale + ')';
+        // Smoke/wave distortion — sinusoidal waves rippling the canvas
+        var breathScale = 1.0 + 0.01 * Math.sin(this.time * 0.7);
+        var waveSkewX = Math.sin(this.time * 0.4) * 0.8;
+        var waveSkewY = Math.cos(this.time * 0.35) * 0.5;
+        var waveX = Math.sin(this.time * 0.6) * 3;
+        var waveY = Math.cos(this.time * 0.5) * 2;
+
+        this.canvas.style.transform =
+            'scale(' + breathScale + ') ' +
+            'skew(' + waveSkewX + 'deg, ' + waveSkewY + 'deg) ' +
+            'translate(' + waveX + 'px, ' + waveY + 'px)';
+        this.video.style.transform =
+            'scaleX(-1) scale(' + breathScale + ') ' +
+            'skew(' + (-waveSkewX * 0.6) + 'deg, ' + (-waveSkewY * 0.6) + 'deg) ' +
+            'translate(' + (-waveX * 0.5) + 'px, ' + (-waveY * 0.5) + 'px)';
     }
 
     dispose() {
