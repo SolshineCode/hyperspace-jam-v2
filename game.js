@@ -906,6 +906,24 @@ export var Game = /*#__PURE__*/ function() {
                                     _this1._updateHandLines(i, smoothedLandmarks, videoParams, canvasWidth, canvasHeight, {
                                         fingerStates: fingerStates
                                     });
+                                    // Per-finger drum sounds via updateDrumGesture
+                                    var drumWrist = smoothedLandmarks[0];
+                                    var drumPalmSize = Math.abs(drumWrist.y - smoothedLandmarks[9].y) || 0.1;
+                                    var drumIndexExt = Math.max(0, Math.min(1, (smoothedLandmarks[6].y - smoothedLandmarks[8].y) / drumPalmSize));
+                                    var drumMiddleExt = Math.max(0, Math.min(1, (smoothedLandmarks[10].y - smoothedLandmarks[12].y) / drumPalmSize));
+                                    var drumRingExt = Math.max(0, Math.min(1, (smoothedLandmarks[14].y - smoothedLandmarks[16].y) / drumPalmSize));
+                                    var drumPinkyExt = Math.max(0, Math.min(1, (smoothedLandmarks[18].y - smoothedLandmarks[20].y) / drumPalmSize));
+                                    if (_this1.musicManager.updateDrumGesture) {
+                                        _this1.musicManager.updateDrumGesture({
+                                            fingerStates: fingerStates,
+                                            fingerExtensions: {
+                                                index: drumIndexExt,
+                                                middle: drumMiddleExt,
+                                                ring: drumRingExt,
+                                                pinky: drumPinkyExt
+                                            }
+                                        });
+                                    }
                                 }
                                 hand.lineGroup.visible = true;
                             } else {
@@ -1471,21 +1489,11 @@ export var Game = /*#__PURE__*/ function() {
                         var dispAmplitude = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
                         this.displacementFilter.update(dispAmplitude, []);
                     }
-                    // --- Pulse hand skeleton lines to audio ---
+                    // Simple line color pulse (lightweight)
                     var pulseAmp = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
-                    var pulseTime = performance.now() * 0.003;
-                    var pulse = 0.4 + pulseAmp * 3.0 + Math.sin(pulseTime) * 0.15;
-                    pulse = Math.min(1.0, pulse);
-                    // Cycle line color through neon hues based on time + amplitude
-                    var hue = (pulseTime * 0.1 + pulseAmp * 2.0) % 1.0;
+                    var brightness = 0.5 + Math.min(0.5, pulseAmp * 2);
                     if (this.handLineMaterial) {
-                        this.handLineMaterial.color.setHSL(hue, 1.0, 0.3 + pulse * 0.4);
-                    }
-                    if (this.fingertipMaterialHand1) {
-                        this.fingertipMaterialHand1.color.setHSL((hue + 0.33) % 1.0, 1.0, 0.4 + pulse * 0.4);
-                    }
-                    if (this.fingertipMaterialHand2) {
-                        this.fingertipMaterialHand2.color.setHSL((hue + 0.66) % 1.0, 1.0, 0.4 + pulse * 0.4);
+                        this.handLineMaterial.color.setHSL(0.83, 1.0, brightness); // magenta pulse
                     }
                 }
                 this.renderer.render(this.scene, this.camera);

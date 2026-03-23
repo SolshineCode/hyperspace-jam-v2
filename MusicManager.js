@@ -1,15 +1,12 @@
 import * as Tone from 'https://esm.sh/tone';
 
 // Gesture-Driven Music Engine for Hyperspace Jam
-// No clock, no metronome — all sound triggered by hand movement
+// Every finger on both hands produces a unique, radically different sound
 export class MusicManager {
     constructor() {
         // Synths
-        this.padSynths = new Map();      // handId -> Tone.Synth (sustained drone)
+        this.padSynths = new Map();      // handId -> { synth, harmonySynth, currentRoot }
         this.activePatterns = this.padSynths; // backward compat — game.js checks .activePatterns.has(i)
-        this.pluckSynth = null;          // shared PluckSynth for finger triggers
-        this.kickSynth = null;           // MembraneSynth for downward hits
-        this.hatSynth = null;            // NoiseSynth for sideways hits
 
         // Effects
         this.reverb = null;
@@ -20,22 +17,22 @@ export class MusicManager {
         // State tracking
         this.isStarted = false;
         this.handVolumes = new Map();
-        this.fingerCooldowns = new Map(); // handId -> { index: timestamp, middle: timestamp, ... }
-        this.percCooldown = 0;            // global percussion cooldown timestamp
+        this.fingerCooldowns = new Map();
+        this.percCooldown = 0;
 
-        this.FINGER_COOLDOWN_MS = 120; // shorter = more responsive finger plucks
+        this.FINGER_COOLDOWN_MS = 120;
         this.PERC_COOLDOWN_MS = 150;
         this.HAND_VELOCITY_THRESHOLD = 0.15;
 
-        // Finger -> semitone interval mapping (harmonically rich chord voicing)
+        // Finger -> semitone interval mapping for synth hand melodic triggers
         this.fingerIntervals = {
             index: 0,    // root
             middle: 3,   // minor third
             ring: 7,     // perfect fifth
-            pinky: 10    // minor seventh (creates lush minor 7th chord)
+            pinky: 10    // minor seventh
         };
 
-        // Extended C Minor Pentatonic — super bassy low end, modest highs
+        // Extended C Minor Pentatonic scale
         this.scale = [
             'C1', 'Eb1', 'G1', 'Bb1',
             'C2', 'Eb2', 'F2', 'G2', 'Bb2',
@@ -44,7 +41,7 @@ export class MusicManager {
             'C5', 'Eb5', 'F5'
         ];
 
-        // Pad timbre presets — psychedelic bass EDM
+        // Pad timbre presets
         this.padPresets = [
             {
                 name: 'Hypnotic Sub',
@@ -63,6 +60,11 @@ export class MusicManager {
             }
         ];
         this.currentSynthIndex = 0;
+
+        // Previous extension tracking for both hands
+        this._prevExtensions = {};
+        this._prevDrumExtensions = { index: 0, middle: 0, ring: 0, pinky: 0 };
+        this._drumFingerCooldowns = { index: 0, middle: 0, ring: 0, pinky: 0 };
     }
 
     async start() {
@@ -70,9 +72,9 @@ export class MusicManager {
 
         await Tone.start();
 
-        // === EFFECTS CHAIN: Psychedelic Bass EDM ===
+        // === EFFECTS CHAIN ===
 
-        // Master limiter — protect speakers from bass peaks
+        // Master limiter
         this.limiter = new Tone.Limiter(-3).toDestination();
 
         // Dark cavernous reverb
@@ -82,123 +84,157 @@ export class MusicManager {
             wet: 0.35
         }).connect(this.limiter);
 
-        // Ping-pong delay for hypnotic echoes
+        // Ping-pong delay for finger synths
         this.delay = new Tone.PingPongDelay({
             delayTime: '8n.',
             feedback: 0.35,
             wet: 0.2
         }).connect(this.reverb);
 
-        // Phaser for psychedelic swirl on pad
-        this.phaser = new Tone.Phaser({
-            frequency: 0.4,
-            octaves: 3,
-            baseFrequency: 400
-        }).connect(this.reverb);
-
-        // Chorus for width
+        // Chorus for pad width (no Phaser — CPU savings)
         this.chorus = new Tone.Chorus({
             frequency: 2,
             delayTime: 4,
             depth: 0.7
-        }).connect(this.phaser);
+        }).connect(this.reverb);
         this.chorus.start();
 
-        // Lowpass filter for proximity control
+        // Lowpass filter for proximity control (pad chain)
         this.filter = new Tone.Filter(16000, 'lowpass').connect(this.chorus);
 
-        // Analyser for visualization
+        // Analyser for visualization — taps reverb output
         this.analyser = new Tone.Analyser('waveform', 1024);
         this.reverb.connect(this.analyser);
 
-        // === LAYER 2: Per-Finger Synths — each finger has a UNIQUE sound ===
+        // === HAND 1 FINGER SYNTHS (Synth Hand — i===0) ===
 
-        // INDEX = sharp crystalline bell (high, bright, immediate)
         this.fingerSynths = {};
-        this.fingerSynths.index = new Tone.FMSynth({
-            harmonicity: 5,
-            modulationIndex: 8,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.4 },
-            modulation: { type: 'square' },
-            modulationEnvelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.2 }
-        }).connect(this.delay);
-        this.fingerSynths.index.volume.value = -2;
 
-        // MIDDLE = warm pluck (mellow, rounder, like a harp)
-        this.fingerSynths.middle = new Tone.Synth({
-            oscillator: { type: 'triangle' },
-            envelope: { attack: 0.01, decay: 0.4, sustain: 0.05, release: 0.8 }
+        // INDEX: "Acid Squelch" — MonoSynth with sawtooth + filter sweep
+        this.fingerSynths.index = new Tone.MonoSynth({
+            oscillator: { type: 'sawtooth' },
+            filter: {
+                Q: 8,
+                type: 'lowpass',
+                rolloff: -24
+            },
+            envelope: { attack: 0.005, decay: 0.2, sustain: 0.1, release: 0.3 },
+            filterEnvelope: {
+                attack: 0.001,
+                decay: 0.15,
+                sustain: 0.05,
+                release: 0.2,
+                baseFrequency: 200,
+                octaves: 4,
+                exponent: 2
+            }
         }).connect(this.delay);
-        this.fingerSynths.middle.volume.value = 0;
+        this.fingerSynths.index.volume.value = -4;
 
-        // RING = metallic shimmer (bell-like, long tail)
+        // MIDDLE: "Laser Zap" — FMSynth with extreme modulation, fast pitch sweep
+        this.fingerSynths.middle = new Tone.FMSynth({
+            harmonicity: 8,
+            modulationIndex: 25,
+            oscillator: { type: 'square' },
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+            modulation: { type: 'sawtooth' },
+            modulationEnvelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
+        }).connect(this.delay);
+        this.fingerSynths.middle.volume.value = -6;
+
+        // RING: "Crystal Chime" — MetalSynth, bright bell
         this.fingerSynths.ring = new Tone.MetalSynth({
             harmonicity: 12,
-            modulationIndex: 20,
-            resonance: 2000,
-            octaves: 1,
-            envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.3 }
-        }).connect(this.delay);
-        this.fingerSynths.ring.volume.value = -6;
-
-        // PINKY = deep bass thud (sub, punchy, feel-it-in-your-chest)
-        this.fingerSynths.pinky = new Tone.MembraneSynth({
-            pitchDecay: 0.04,
-            octaves: 4,
-            oscillator: { type: 'sine' },
+            modulationIndex: 24,
+            resonance: 3000,
+            octaves: 1.5,
             envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }
-        }).connect(this.limiter);  // direct to limiter — sub bass shouldn't go through delay
+        }).connect(this.delay);
+        this.fingerSynths.ring.volume.value = -8;
+
+        // PINKY: "Sub Drop" — MembraneSynth with long pitch decay
+        this.fingerSynths.pinky = new Tone.MembraneSynth({
+            pitchDecay: 0.3,
+            octaves: 6,
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.8, sustain: 0, release: 0.5 }
+        }).connect(this.limiter); // sub direct — no delay/reverb muddying
         this.fingerSynths.pinky.volume.value = -2;
 
-        // Keep pluckSynth reference for backward compat (panic uses releaseAll)
+        // === HAND 2 FINGER SYNTHS (Drum Hand — i===1) ===
+
+        this.drumFingerSynths = {};
+
+        // INDEX: Kick — deep membrane hit (same as before but dedicated to drum hand)
+        this.drumFingerSynths.index = new Tone.MembraneSynth({
+            pitchDecay: 0.08,
+            octaves: 8,
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.5 }
+        }).connect(this.limiter); // percussion direct
+        this.drumFingerSynths.index.volume.value = -4;
+
+        // MIDDLE: "Sci-Fi Riser" — noise with filter sweeping UP
+        this.drumFingerSynths.middle = new Tone.NoiseSynth({
+            noise: { type: 'pink' },
+            envelope: { attack: 0.05, decay: 0.6, sustain: 0, release: 0.3 }
+        });
+        this._riserFilter = new Tone.AutoFilter({
+            frequency: 4,
+            baseFrequency: 200,
+            octaves: 6,
+            filter: { type: 'bandpass', Q: 2 }
+        }).connect(this.delay);
+        this._riserFilter.start();
+        this.drumFingerSynths.middle.connect(this._riserFilter);
+        this.drumFingerSynths.middle.volume.value = -8;
+
+        // RING: "Granular Stutter" — rapid burst noise hits
+        this.drumFingerSynths.ring = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.02, sustain: 0, release: 0.01 }
+        }).connect(this.limiter); // percussion direct, punchy
+        this.drumFingerSynths.ring.volume.value = -10;
+
+        // PINKY: "Reverb Crash" — noise hit into massive reverb
+        this._crashReverb = new Tone.Reverb({
+            decay: 8,
+            preDelay: 0.01,
+            wet: 0.9
+        }).connect(this.limiter);
+        this.drumFingerSynths.pinky = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+        }).connect(this._crashReverb);
+        this.drumFingerSynths.pinky.volume.value = -6;
+
+        // Keep legacy references for backward compat
+        this.kickSynth = this.drumFingerSynths.index;
+        this.hatSynth = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 }
+        }).connect(this.limiter);
+        this.hatSynth.volume.value = -12;
         this.pluckSynth = { releaseAll: () => {} };
 
-        // === LAYER 3: Sub-Bass (always-on low foundation) ===
+        // === SUB-BASS (always-on low foundation) ===
         this.subBass = new Tone.Synth({
             oscillator: { type: 'sine' },
             envelope: { attack: 0.3, decay: 0, sustain: 1, release: 0.8 }
-        }).connect(this.limiter);  // sub goes direct — no effects muddying it
+        }).connect(this.limiter); // sub direct
         this.subBass.volume.value = -18;
 
-        // Sub-bass wobble LFO — gentle psychedelic pulse (not aggressive dubstep)
+        // Sub-bass wobble LFO
         this.wobbleLFO = new Tone.LFO({
             frequency: 0.3,
             min: -22,
-            max: -12     // narrower range = less buzzy
+            max: -12
         });
         this.wobbleLFO.connect(this.subBass.volume);
         this.wobbleLFO.start();
 
-        // === LAYER 4: Heavy Percussion ===
-        // Deep bass kick — heavy, with pitch sweep
-        this.kickSynth = new Tone.MembraneSynth({
-            pitchDecay: 0.08,
-            octaves: 8,
-            oscillator: { type: 'sine' },
-            envelope: {
-                attack: 0.001,
-                decay: 0.5,
-                sustain: 0,
-                release: 0.5
-            }
-        }).connect(this.limiter);
-        this.kickSynth.volume.value = -4;
-
-        // Hi-hat — filtered noise burst
-        this.hatSynth = new Tone.NoiseSynth({
-            noise: { type: 'white' },
-            envelope: {
-                attack: 0.001,
-                decay: 0.06,
-                sustain: 0,
-                release: 0.02
-            }
-        }).connect(this.limiter);
-        this.hatSynth.volume.value = -12;
-
         this.isStarted = true;
-        console.log('Psychedelic Bass EDM engine ready — gesture-driven, no clock.');
+        console.log('Psychedelic Bass EDM engine ready — 10-finger unique sounds, gesture-driven.');
     }
 
     // --- Pad Management (Layer 1) ---
@@ -208,7 +244,6 @@ export class MusicManager {
 
         const preset = this.padPresets[this.currentSynthIndex];
 
-        // Root pad voice — goes through filter → chorus → phaser → reverb
         const pad = new Tone.Synth({
             oscillator: { ...preset.oscillator },
             envelope: { ...preset.envelope }
@@ -216,7 +251,6 @@ export class MusicManager {
         pad.connect(this.filter);
         pad.volume.value = -10;
 
-        // Harmony voice — detuned fifth for thick psychedelic texture
         const harmonyPad = new Tone.Synth({
             oscillator: { ...preset.oscillator },
             envelope: { ...preset.envelope }
@@ -224,12 +258,10 @@ export class MusicManager {
         harmonyPad.connect(this.filter);
         harmonyPad.volume.value = -16;
 
-        // Start sustained tones
         const freq = Tone.Frequency(rootNote).toFrequency();
         pad.triggerAttack(freq, Tone.now());
         harmonyPad.triggerAttack(freq * 1.498, Tone.now());
 
-        // Also trigger sub-bass at the root (one octave below for weight)
         if (this.subBass) {
             this.subBass.triggerAttack(freq / 2, Tone.now());
         }
@@ -243,14 +275,13 @@ export class MusicManager {
         const padData = this.padSynths.get(handId);
         if (!padData || padData.currentRoot === newRootNote) return;
 
-        // Smooth portamento glide — all voices
         const freq = Tone.Frequency(newRootNote).toFrequency();
         padData.synth.frequency.rampTo(freq, 0.15);
         if (padData.harmonySynth) {
             padData.harmonySynth.frequency.rampTo(freq * 1.498, 0.15);
         }
         if (this.subBass) {
-            this.subBass.frequency.rampTo(freq / 2, 0.2); // sub glides slower for weight
+            this.subBass.frequency.rampTo(freq / 2, 0.2);
         }
         padData.currentRoot = newRootNote;
     }
@@ -264,7 +295,7 @@ export class MusicManager {
         const db = -30 + clamped * 26;
         padData.synth.volume.rampTo(db, 0.1);
         if (padData.harmonySynth) {
-            padData.harmonySynth.volume.rampTo(db - 6, 0.1); // harmony stays quieter
+            padData.harmonySynth.volume.rampTo(db - 6, 0.1);
         }
     }
 
@@ -273,7 +304,6 @@ export class MusicManager {
         if (padData) {
             padData.synth.triggerRelease(Tone.now());
             if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
-            // Release sub-bass when last pad stops
             if (this.padSynths.size <= 1 && this.subBass) {
                 this.subBass.triggerRelease(Tone.now());
             }
@@ -295,14 +325,13 @@ export class MusicManager {
         }
     }
 
-    // --- Gesture Processing (called per frame) ---
+    // --- Gesture Processing: Synth Hand (hand 0) ---
 
     updateGesture(handId, gestureData) {
         if (!this.isStarted || this._panicMuted) return;
 
         const {
             fingerStates,
-            prevFingerStates,
             fingerVelocities,
             handVelocity,
             rootNote,
@@ -313,13 +342,12 @@ export class MusicManager {
         const cooldowns = this.fingerCooldowns.get(handId);
         if (!cooldowns) return;
 
-        // --- Layer 2: Pluck notes on finger extension ---
-        // Track continuous extension values (not just booleans)
-        if (!this._prevExtensions) this._prevExtensions = {};
-        if (!this._prevExtensions[handId]) this._prevExtensions[handId] = { index: 0, middle: 0, ring: 0, pinky: 0 };
+        // Track continuous extension values
+        if (!this._prevExtensions[handId]) {
+            this._prevExtensions[handId] = { index: 0, middle: 0, ring: 0, pinky: 0 };
+        }
         const prevExt = this._prevExtensions[handId];
 
-        // Get raw extension values from gestureData
         const extValues = gestureData.fingerExtensions || {
             index: fingerStates.index ? 0.8 : 0.1,
             middle: fingerStates.middle ? 0.8 : 0.1,
@@ -332,8 +360,6 @@ export class MusicManager {
             const prev = prevExt[finger];
             const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
 
-            // Trigger when finger crosses UP through threshold (0.2 → 0.5+)
-            // OR when it was curled below 0.15 and is now above 0.35
             const justCrossedUp = prev < 0.25 && ext > 0.35;
 
             if (justCrossedUp && offCooldown) {
@@ -344,12 +370,15 @@ export class MusicManager {
                 const noteFreq = rootFreq * Math.pow(2, semitones / 12);
                 const noteName = Tone.Frequency(noteFreq).toNote();
 
-                // Trigger the finger's unique synth
                 const synth = this.fingerSynths[finger];
                 if (synth) {
                     if (finger === 'ring') {
-                        // MetalSynth uses frequency number, not note name
+                        // MetalSynth uses frequency number
                         synth.triggerAttackRelease(noteFreq, '4n', Tone.now(), 0.8);
+                    } else if (finger === 'middle') {
+                        // Laser zap: trigger at high pitch, it sweeps down via FM
+                        const zapFreq = noteFreq * 2;
+                        synth.triggerAttackRelease(Tone.Frequency(zapFreq).toNote(), '16n', Tone.now(), 0.9);
                     } else {
                         synth.triggerAttackRelease(noteName, '4n', Tone.now(), 0.8);
                     }
@@ -359,7 +388,7 @@ export class MusicManager {
             prevExt[finger] = ext;
         }
 
-        // --- Layer 3: Percussive hits on sharp hand movement ---
+        // Percussive hits on sharp hand movement
         if ((now - this.percCooldown) > this.PERC_COOLDOWN_MS) {
             const vx = handVelocity?.x || 0;
             const vy = handVelocity?.y || 0;
@@ -369,15 +398,68 @@ export class MusicManager {
                 this.percCooldown = now;
 
                 if (vy > this.HAND_VELOCITY_THRESHOLD) {
-                    // Downward movement -> kick thump
                     const intensity = Math.min(1, vy * 3);
                     this.kickSynth.triggerAttackRelease('C1', '8n', Tone.now(), intensity);
                 } else if (Math.abs(vx) > this.HAND_VELOCITY_THRESHOLD) {
-                    // Sideways movement -> hi-hat noise burst
                     const intensity = Math.min(1, Math.abs(vx) * 3);
                     this.hatSynth.triggerAttackRelease('16n', Tone.now(), intensity);
                 }
             }
+        }
+    }
+
+    // --- Gesture Processing: Drum Hand (hand 1) ---
+
+    updateDrumGesture(gestureData) {
+        if (!this.isStarted || this._panicMuted) return;
+
+        const now = performance.now();
+        const prevExt = this._prevDrumExtensions;
+        const cooldowns = this._drumFingerCooldowns;
+
+        const fingerStates = gestureData.fingerStates || {};
+        const extValues = gestureData.fingerExtensions || {
+            index: fingerStates.index ? 0.8 : 0.1,
+            middle: fingerStates.middle ? 0.8 : 0.1,
+            ring: fingerStates.ring ? 0.8 : 0.1,
+            pinky: fingerStates.pinky ? 0.8 : 0.1
+        };
+
+        for (const finger of ['index', 'middle', 'ring', 'pinky']) {
+            const ext = extValues[finger];
+            const prev = prevExt[finger];
+            const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
+
+            const justCrossedUp = prev < 0.25 && ext > 0.35;
+
+            if (justCrossedUp && offCooldown) {
+                cooldowns[finger] = now;
+
+                const synth = this.drumFingerSynths[finger];
+                if (!synth) continue;
+
+                if (finger === 'index') {
+                    // Kick drum
+                    synth.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
+                } else if (finger === 'middle') {
+                    // Sci-Fi Riser — noise burst through sweeping filter
+                    synth.triggerAttackRelease('8n', Tone.now(), 0.7);
+                } else if (finger === 'ring') {
+                    // Granular Stutter — 4 rapid hits
+                    for (let i = 0; i < 4; i++) {
+                        setTimeout(() => {
+                            try {
+                                synth.triggerAttackRelease('64n', Tone.now(), 0.6);
+                            } catch(e) { /* synth busy */ }
+                        }, i * 45); // ~45ms apart = glitchy rapid fire
+                    }
+                } else if (finger === 'pinky') {
+                    // Reverb Crash — single hit into massive reverb tail
+                    synth.triggerAttackRelease('8n', Tone.now(), 0.8);
+                }
+            }
+
+            prevExt[finger] = ext;
         }
     }
 
@@ -388,31 +470,26 @@ export class MusicManager {
 
         const { middleFinger, ringFinger, pinkyFinger, handSpread } = params;
 
-        // Middle finger → phaser intensity (psychedelic swirl)
-        if (this.phaser) {
-            this.phaser.wet.value = 0.2 + middleFinger * 0.6;
-        }
-
-        // Ring finger → delay feedback (echo intensity)
+        // Ring finger -> delay feedback
         if (this.delay) {
             this.delay.feedback.value = 0.15 + ringFinger * 0.45;
         }
 
-        // Pinky → reverb depth (space size)
+        // Pinky -> reverb depth
         if (this.reverb) {
             this.reverb.wet.value = 0.2 + pinkyFinger * 0.4;
         }
 
-        // Hand spread → wobble LFO speed (wider = faster wobble = aggressive bass)
+        // Hand spread -> wobble LFO speed
         if (this.wobbleLFO) {
-            this.wobbleLFO.frequency.value = 0.2 + handSpread * 6; // 0.2Hz slow → 6.2Hz fast wobble
+            this.wobbleLFO.frequency.value = 0.2 + handSpread * 6;
         }
 
-        // Hand spread also → pad detune (wider = thicker, more detuned)
+        // Hand spread -> pad detune
         this.padSynths.forEach(padData => {
             padData.synth.detune.rampTo(handSpread * 40, 0.1);
             if (padData.harmonySynth) {
-                padData.harmonySynth.detune.rampTo(-handSpread * 25, 0.1); // opposite detune = wide stereo
+                padData.harmonySynth.detune.rampTo(-handSpread * 25, 0.1);
             }
         });
     }
@@ -422,7 +499,6 @@ export class MusicManager {
     cycleSynth() {
         if (!this.isStarted) return;
 
-        // Store active pad states
         const activePads = [];
         this.padSynths.forEach((padData, handId) => {
             activePads.push({ handId, root: padData.currentRoot });
@@ -431,13 +507,11 @@ export class MusicManager {
         });
         this.padSynths.clear();
 
-        // Advance preset
         this.currentSynthIndex = (this.currentSynthIndex + 1) % this.padPresets.length;
         const preset = this.padPresets[this.currentSynthIndex];
 
         console.log(`Switched to pad preset ${this.currentSynthIndex}: ${preset.name}`);
 
-        // Restart pads with new timbre
         setTimeout(() => {
             activePads.forEach(({ handId, root }) => {
                 this.startArpeggio(handId, root);
@@ -448,27 +522,23 @@ export class MusicManager {
     // --- Proximity Filter ---
 
     setProximityFilter(value) {
-        // value: 0 = far (dry/bright), 1 = close (wet/warm)
-        // Gentle, musical sweep — noticeable but not harsh
         if (this.filter) {
-            // Sweep lowpass: 16000 Hz (far) down to 1200 Hz (close) — not as extreme
-            var cutoff = 16000 * Math.pow(0.075, value);
-            this.filter.frequency.rampTo(cutoff, 0.2); // slower ramp = smoother
+            const cutoff = 16000 * Math.pow(0.075, value);
+            this.filter.frequency.rampTo(cutoff, 0.2);
         }
         if (this.reverb) {
-            this.reverb.wet.value = 0.3 + value * 0.3; // 0.3-0.6 (was 0.3-0.85)
+            this.reverb.wet.value = 0.3 + value * 0.3;
         }
         if (this.delay) {
-            this.delay.wet.value = 0.15 + value * 0.2; // 0.15-0.35 (was 0.1-0.5)
+            this.delay.wet.value = 0.15 + value * 0.2;
         }
         if (this.chorus) {
             this.chorus.depth = 0.4 + value * 0.4;
         }
     }
 
-    // --- PANIC: kill ALL sound immediately and block new sound for 1 second ---
+    // --- PANIC: kill ALL sound immediately ---
     panic() {
-        // Set mute flag — blocks startArpeggio and updateGesture for 1 second
         this._panicMuted = true;
         setTimeout(() => { this._panicMuted = false; }, 1000);
 
@@ -490,28 +560,39 @@ export class MusicManager {
             try { this.subBass.triggerRelease(Tone.now()); } catch(e) {}
         }
 
-        // Silence all finger synths
+        // Silence all synth hand finger synths
         if (this.fingerSynths) {
             for (const finger of ['index', 'middle', 'ring', 'pinky']) {
                 try { this.fingerSynths[finger].triggerRelease(Tone.now()); } catch(e) {}
             }
         }
 
-        // Kill the wobble LFO temporarily
+        // Silence all drum hand finger synths
+        if (this.drumFingerSynths) {
+            for (const finger of ['index', 'middle', 'ring', 'pinky']) {
+                try { this.drumFingerSynths[finger].triggerRelease(Tone.now()); } catch(e) {}
+            }
+        }
+
+        // Kill wobble LFO temporarily
         if (this.wobbleLFO) {
             this.wobbleLFO.stop();
             setTimeout(() => { try { this.wobbleLFO.start(); } catch(e) {} }, 1000);
         }
 
-        // Reset filter to open
+        // Reset filter
         if (this.filter) {
             this.filter.frequency.value = 16000;
         }
 
-        // Reset all effect wet levels
+        // Reset effect wet levels
         if (this.reverb) this.reverb.wet.value = 0.35;
         if (this.delay) this.delay.wet.value = 0.2;
         if (this.chorus) this.chorus.depth = 0.6;
+
+        // Reset drum extension tracking
+        this._prevDrumExtensions = { index: 0, middle: 0, ring: 0, pinky: 0 };
+        this._drumFingerCooldowns = { index: 0, middle: 0, ring: 0, pinky: 0 };
 
         console.log('PANIC — all sound killed, muted for 1 second');
     }
