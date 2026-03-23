@@ -659,8 +659,8 @@ export class MusicManager {
         // =====================================================================
 
         const DEAD_ZONE = 0.25;  // higher than trigger thresh so loop starts after open
-        const MIN_BPM = 30;
-        const MAX_BPM = 160;
+        const MIN_BPM = 20;     // very slow ambient pulse
+        const MAX_BPM = 100;    // chill downtempo cap
 
         const distToInterval = (dist) => {
             if (dist < DEAD_ZONE) return Infinity;
@@ -777,7 +777,7 @@ export class MusicManager {
         // Ring finger distance sets beat rate of the shape bass (0=off, 1=fast pulse)
         const ringDist = this._smoothDist.ring || 0;
         if (ringDist > 0.15 && this._shapeBassActive) {
-            const beatBPM = 30 + ringDist * 130; // 30-160 BPM
+            const beatBPM = 15 + ringDist * 85; // 15-100 BPM, ambient throb
             const beatMs = 60000 / beatBPM;
             if (!this._shapeBeatTimer) this._shapeBeatTimer = 0;
             const now = performance.now();
