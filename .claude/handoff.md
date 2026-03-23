@@ -1,15 +1,14 @@
-# Hyperspace Jam — Session Handoff (2026-03-22 final-final)
+# Hyperspace Jam — Session Handoff (2026-03-23)
 
-## STATUS: Working but crashes after extended use
+## STATUS: Working, needs per-finger sound refinement
 
-The app loads, tracks hands, plays gesture-driven music, shows psychedelic effects. But it crashes after a few minutes of use — likely memory leak from per-frame geometry creation/disposal.
+Core app is stable: hand tracking, pad drone, sub-bass, drums, psychedelic visuals all work.
+Per-finger sounds exist in code but need testing/tuning after the rampTo crash fix.
 
 ## Links
 - **HF Space**: https://huggingface.co/spaces/Solshine/hyperspace-jam
 - **Direct URL**: https://solshine-hyperspace-jam.static.hf.space/index.html
 - **GitHub**: https://github.com/SolshineCode/hyperspace-jam-v2
-- **Working dir**: C:\Users\caleb\hyperspace-jam-v2
-- **Deploy dir**: C:\Users\caleb\hyperspace-jam-v2-clean
 
 ## Deploy Command
 ```bash
@@ -18,54 +17,78 @@ cp /c/Users/caleb/hyperspace-jam-v2/*.js /c/Users/caleb/hyperspace-jam-v2/*.html
 python -c "from huggingface_hub import HfApi; HfApi().upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type='space', ignore_patterns=['.git*'])"
 ```
 
-## PRIORITY 1: Fix Crash (Memory Leak)
-
-### Likely causes:
-1. **ShapeManager.js** — `update()` clears ALL group children and recreates geometry every frame. Should reuse geometry and only update positions.
-2. **MandalaVisualizer.js** — same pattern, disposes and recreates every frame
-3. **MusicManager.js stopArpeggio()** — `setTimeout(() => synth.dispose(), 3000)` can accumulate if called rapidly. Add tracking to prevent duplicates.
-4. **SVG turbulence filter** — updating DOM attributes 60x/sec may cause browser layout thrashing
-
-### Fix approach:
-- ShapeManager: pre-allocate node meshes and edge meshes in constructor, reuse them, only update positions in update()
-- MandalaVisualizer: same — pre-allocate, reuse
-- MusicManager: track pending disposals, cancel duplicates
-- DisplacementFilter: throttle SVG attribute updates to 15fps instead of 60fps
-
-## PRIORITY 2: Features That Need Testing
-- Gesture-driven music (pad + pluck + percussion layers)
-- Per-finger expression controls (delay, reverb, speed, timbre)
-- ShapeManager pinch detection (fingertip anchors)
-- ShapeTessellationShader (internal Poincaré tessellation in shapes)
-- SVG turbulence displacement
-
-## PRIORITY 3: Remaining Phase 3 Features
-- Phase 3.5: Audio-geometry feedback (proximity filter, shape area → delay)
-- Phase 3.6: Multiplayer jam session (numHands: 4, treble+bass split)
-
-## What Works Well
-- Webcam + MediaPipe hand tracking in HF Spaces
-- EDM gesture-driven music (3 layers: pad, pluck, percussion)
-- Hand skeleton visualization (magenta lines, cyan dots)
-- Mandala geometry (pentagram, rays, rings)
-- Psychedelic hue-rotating webcam filter (fast, dramatic)
+## What Works
+- Webcam + MediaPipe hand tracking (2 hands) in HF Spaces
+- Pad drone with harmony voice (root + detuned 5th), smooth pitch glide
+- Sub-bass layer with wobble LFO (hand spread = wobble speed)
+- Hand height (Y) → pitch across 5 octaves (C1 sub-bass to F5)
+- Thumb-index pinch → volume (normalized by palm size, works at any distance)
+- Proximity to camera → lowpass filter sweep + reverb/delay wet
+- Fist gesture → cycle pad presets (Hypnotic Sub / Acid Growl / Trance Wash)
+- Spacebar PANIC → kills all sound + 1 second mute window
+- Hand 2 drums via DrumManager (index=kick, middle=snare, ring=hihat, pinky=clap)
+- Psychedelic hue-rotating webcam filter (fast, saturated)
 - SVG turbulence displacement (organic per-pixel warping)
-- Displacement ON by default, toggle with 'D'
-- Top bar shows control instructions
-- Labels on hands: "PAD: note", "WIGGLE FINGERS TO PLAY"
+- Smoke/wave CSS distortion
+- Poincaré hyperbolic shader background (audio-reactive, breathing)
+- Mandala geometry (pentagram, rays, rings between fingers)
+- Shape pinch detection + tessellation shader
+- Per-finger labels on both hands
+- Controls hint panel (frosted glass, bottom center)
+- Pre-allocated geometry pools (ShapeManager + MandalaVisualizer) for stability
+
+## PRIORITY 1: Per-Finger Sound Refinement
+
+### The root cause we found
+A `Tone.js rampTo()` with near-zero values threw `RangeError` EVERY FRAME, which crashed `_updateHands()`, which killed ALL tracking AND sound. Fixed by removing the offending rampTo and wrapping in try/catch.
+
+### Current finger synth architecture (MusicManager.js)
+**Hand 1 (synth hand) finger synths — all pre-allocated in start():**
+- INDEX: MonoSynth "Acid Squelch" (sawtooth + filter sweep) → connected to delay
+- MIDDLE: FMSynth "Laser Zap" (modulationIndex=25, square+sawtooth) → delay
+- RING: MetalSynth "Crystal Chime" (resonance=3000, 1.5 octaves) → delay
+- PINKY: MembraneSynth "Sub Drop" (pitchDecay=0.3, 6 octaves) → limiter
+
+**Hand 2 (drum hand) finger synths — pre-allocated in start():**
+- INDEX: MembraneSynth kick (8 octaves) → limiter
+- MIDDLE: NoiseSynth "Riser" through AutoFilter → delay
+- RING: NoiseSynth "Stutter" (rapid 4x bursts) → limiter
+- PINKY: NoiseSynth "Crash" into dedicated Reverb(decay=8) → limiter
+
+### What needs work next session
+1. **Test with the crash fix** — the rampTo fix may have unblocked everything
+2. **Verify finger extension values** — add console.log in updateGesture to see actual ext values
+3. **The curl→extend threshold (0.25→0.35)** may need adjustment based on actual data
+4. **Consider going back to the arpeggiator pattern** as the user liked — add finger sounds ON TOP of the arp, not replacing it
+5. **The original arpeggiator's finger detection worked** because it used game.js's `_getFingerStates()` which is proven. Our custom extension calculation may be wrong.
+
+### Key insight from user
+"The arpeggiator worked so well though" — the working arpeggiator-based version had reliable hand detection because it didn't have per-frame errors crashing the update loop. With the crash fixed, the current version should track properly. But if finger detection is still unreliable, consider using `_getFingerStates()` (boolean up/down, proven to work) instead of continuous extension values.
 
 ## Key Files
-| File | Lines | Status |
-|------|-------|--------|
-| game.js | ~1480 | TRANSPILED — many surgical edits, handle with care |
-| ShapeManager.js | ~435 | Rewritten — correct anchor logic, NEEDS optimization |
-| ShapeTessellationShader.js | ~200 | Has `ctr` rename fix, otherwise untested |
-| DisplacementFilter.js | ~115 | SVG turbulence, working |
-| WaveformVisualizer.js | ~200 | Poincaré shader + breathing, working |
-| MandalaVisualizer.js | ~175 | Working but leaks geometry |
-| MusicManager.js | ~340 | Gesture-driven, working, needs disposal fix |
-| DrumManager.js | ~250 | Unchanged from arpeggiator, stable |
+| File | Purpose | Status |
+|------|---------|--------|
+| game.js | Main orchestrator (TRANSPILED ~1500 lines) | Many surgical edits, fragile |
+| MusicManager.js | 10-finger psybass EDM engine | Crash fixed, needs testing |
+| DrumManager.js | Drum sequencer | Stable, unchanged |
+| WaveformVisualizer.js | Poincaré shader + breathing | Working |
+| MandalaVisualizer.js | Sacred geometry | Pre-allocated pools, stable |
+| ShapeManager.js | Pinch shapes + tessellation | Pre-allocated pools, stable |
+| ShapeTessellationShader.js | GLSL for shape interiors | `ctr` fix applied |
+| DisplacementFilter.js | SVG turbulence + smoke waves | Working |
+| index.html | UI + controls hint | Updated labels |
+| styles.css | Dark kiosk styling | Working |
 
-## Reference Docs
-- `.claude/vision-reference.md` — Instagram reel interaction spec + multiplayer spec
-- `.claude/plans/cozy-wiggling-acorn.md` — Phase 3 implementation plan
+## Effects Chain
+```
+Pad + Harmony → Filter → Chorus → Reverb → Limiter → Destination
+Finger synths → Delay → Reverb → Limiter → Destination
+Sub-bass → Limiter → Destination (direct, no effects)
+Percussion → Limiter → Destination (direct, punchy)
+Reverb → Analyser (for visualization)
+```
+
+## Remaining Phase 3 Features
+- Phase 3.6: Multiplayer jam session (numHands: 4, treble+bass split)
+- Dynamic shape internal tessellation (ShapeTessellationShader exists but untested)
+- Attract mode logic (30s timer)
