@@ -30,11 +30,11 @@ export class MusicManager {
         ];
 
         this.padPresets = [
-            { name: 'Hypnotic Sub', oscillator: { type: 'sine' }, envelope: { attack: 0.4, decay: 0.5, sustain: 0.6, release: 0.5 } },
-            { name: 'Acid Growl', oscillator: { type: 'sawtooth' }, envelope: { attack: 0.1, decay: 0.3, sustain: 0.5, release: 0.4 } },
-            { name: 'Trance Wash', oscillator: { type: 'triangle' }, envelope: { attack: 0.5, decay: 0.6, sustain: 0.55, release: 0.6 } },
-            { name: 'Detuned Saw', oscillator: { type: 'fatsawtooth', spread: 40, count: 3 }, envelope: { attack: 0.3, decay: 0.4, sustain: 0.7, release: 0.6 } },
-            { name: 'Fat Square', oscillator: { type: 'fatsquare', spread: 30, count: 3 }, envelope: { attack: 0.2, decay: 0.3, sustain: 0.6, release: 0.5 } }
+            { name: 'Ambient Sub', oscillator: { type: 'sine' }, envelope: { attack: 0.8, decay: 0.6, sustain: 0.7, release: 1.0 } },
+            { name: 'Dub Growl', oscillator: { type: 'sawtooth' }, envelope: { attack: 0.3, decay: 0.5, sustain: 0.5, release: 0.8 } },
+            { name: 'Dream Wash', oscillator: { type: 'triangle' }, envelope: { attack: 1.0, decay: 0.8, sustain: 0.6, release: 1.2 } },
+            { name: 'Detuned Saw', oscillator: { type: 'fatsawtooth', spread: 40, count: 3 }, envelope: { attack: 0.6, decay: 0.5, sustain: 0.7, release: 1.0 } },
+            { name: 'Warm Square', oscillator: { type: 'fatsquare', spread: 20, count: 3 }, envelope: { attack: 0.5, decay: 0.4, sustain: 0.6, release: 0.8 } }
         ];
         this.currentSynthIndex = 0;
 
@@ -44,7 +44,7 @@ export class MusicManager {
 
         this._smoothDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._smoothDrumDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
-        this._SMOOTH_ALPHA = 0.4; // higher = more responsive, less smoothing
+        this._SMOOTH_ALPHA = 0.3; // balanced: responsive but not jittery
         this._frameCount = 0; // throttle heavy updates to every 3rd frame
     }
 
@@ -69,8 +69,8 @@ export class MusicManager {
 
         // === MASTER EFFECTS CHAIN ===
         this.limiter = new Tone.Limiter(-3).toDestination();
-        this.reverb = new Tone.Reverb({ decay: 6, preDelay: 0.03, wet: 0.35 }).connect(this.limiter);
-        this.delay = new Tone.PingPongDelay({ delayTime: '8n.', feedback: 0.35, wet: 0.2 }).connect(this.reverb);
+        this.reverb = new Tone.Reverb({ decay: 8, preDelay: 0.05, wet: 0.45 }).connect(this.limiter);
+        this.delay = new Tone.PingPongDelay({ delayTime: '4n', feedback: 0.4, wet: 0.25 }).connect(this.reverb);
         this.chorus = new Tone.Chorus({ frequency: 2, delayTime: 4, depth: 0.7 }).connect(this.reverb);
         this.chorus.start();
         this.filter = new Tone.Filter(16000, 'lowpass').connect(this.chorus);
@@ -404,7 +404,7 @@ export class MusicManager {
             }
         }
         if (this.middleContinuous && doHeavyUpdate) {
-            this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.1);
+            this.middleContinuous.volume.rampTo(d.middle < 0.1 ? -Infinity : -36 + d.middle * 22, 0.1);
         }
 
         // === RING (5th): Goa Pluck ===
@@ -427,7 +427,7 @@ export class MusicManager {
                 this._shimmerReverb.wet.value = 0.2 + d.ring * 0.6;
             }
             if (this.ringContinuous) {
-                this.ringContinuous.volume.rampTo(-35 + d.ring * 18, 0.1);
+                this.ringContinuous.volume.rampTo(d.ring < 0.1 ? -Infinity : -40 + d.ring * 22, 0.1);
             }
         }
 
@@ -452,7 +452,7 @@ export class MusicManager {
                 this.distortion.wet.value = d.pinky * 0.5;
             }
             if (this.pinkyContinuous) {
-                this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 20, 0.1);
+                this.pinkyContinuous.volume.rampTo(d.pinky < 0.1 ? -Infinity : -40 + d.pinky * 22, 0.1);
             }
         }
 
@@ -572,9 +572,9 @@ export class MusicManager {
         // Middle=KICK, Ring=HIHAT, Pinky=CLAP
         // =====================================================================
 
-        const DEAD_ZONE = 0.12;
-        const MIN_BPM = 50;
-        const MAX_BPM = 200;
+        const DEAD_ZONE = 0.18;  // larger dead zone = cleaner silence
+        const MIN_BPM = 30;     // slower, more ambient
+        const MAX_BPM = 160;    // downtempo cap
 
         const distToInterval = (dist) => {
             if (dist < DEAD_ZONE) return Infinity;

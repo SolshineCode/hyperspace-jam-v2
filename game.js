@@ -451,6 +451,8 @@ export var Game = /*#__PURE__*/ function() {
                 this.renderer.domElement.style.left = '0';
                 this.renderer.domElement.style.zIndex = '1'; // Canvas on top of video
                 this.renderer.domElement.style.mixBlendMode = 'screen';
+                // Glow/trail effect via CSS — lightweight, GPU-composited
+                this.renderer.domElement.style.filter = 'blur(0.8px) brightness(1.2) drop-shadow(0 0 8px rgba(255,0,255,0.4)) drop-shadow(0 0 20px rgba(0,255,255,0.2))';
                 this.renderDiv.appendChild(this.renderer.domElement);
                 this.displacementFilter = new DisplacementFilter(this.renderer.domElement, this.videoElement);
                 var gameRef = this;
@@ -1064,7 +1066,8 @@ export var Game = /*#__PURE__*/ function() {
                             'C4', 'Eb4', 'F4', 'G4', 'Bb4',
                             'C5', 'Eb5', 'F5'
                         ];
-                        for(var i = 0; i < this.hands.length; i++)_this1 = this, _loop(i);
+                        var handLimit = this._multiplayerEnabled ? this.hands.length : 2;
+                        for(var i = 0; i < handLimit; i++)_this1 = this, _loop(i);
                     } catch (error) {
                         console.error("Error during hand detection:", error);
                     }
