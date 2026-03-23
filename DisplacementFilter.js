@@ -118,9 +118,9 @@ export class DisplacementFilter {
         var freqY = 0.006 + Math.cos(this.time * 0.25) * 0.002;
         this.turbulence.setAttribute('baseFrequency', freqX + ' ' + freqY);
 
-        // Audio-reactive Amount — displacement scale increases with amplitude
-        var videoScale = 10 + amp * 15; // 10-25 range (subtle to moderate)
-        var canvasScale = 6 + amp * 12;  // 6-18 range
+        // Audio-reactive Amount — MAX STRENGTH displacement
+        var videoScale = 20 + amp * 30; // 20-50 range (always visible, big on audio)
+        var canvasScale = 14 + amp * 22; // 14-36 range
         this.displacement.setAttribute('scale', String(videoScale));
         this.displacement2.setAttribute('scale', String(canvasScale));
 

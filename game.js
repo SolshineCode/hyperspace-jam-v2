@@ -388,15 +388,16 @@ export var Game = /*#__PURE__*/ function() {
                 this.videoElement.playsInline = true;
                 this.videoElement.style.zIndex = '0'; // Ensure video is behind THREE canvas
                 this.renderDiv.appendChild(this.videoElement);
-                // Psychedelic hue rotation on the webcam feed — DRAMATIC
+                // Psychedelic hue rotation — MAX STRENGTH
                 var hueAngle = 0;
                 var videoEl = this.videoElement;
                 setInterval(function() {
-                    hueAngle = (hueAngle + 2) % 360;
-                    var sat = 2.5 + Math.sin(hueAngle * 0.05) * 1.0;
-                    var bright = 1.1 + Math.sin(hueAngle * 0.03) * 0.2;
-                    videoEl.style.filter = 'saturate(' + sat + ') contrast(1.3) brightness(' + bright + ') hue-rotate(' + hueAngle + 'deg)';
-                }, 33);
+                    hueAngle = (hueAngle + 3) % 360;
+                    var sat = 3.5 + Math.sin(hueAngle * 0.04) * 1.5;
+                    var bright = 1.2 + Math.sin(hueAngle * 0.025) * 0.3;
+                    var cont = 1.4 + Math.sin(hueAngle * 0.03) * 0.2;
+                    videoEl.style.filter = 'saturate(' + sat + ') contrast(' + cont + ') brightness(' + bright + ') hue-rotate(' + hueAngle + 'deg) url(#turbulence-displace)';
+                }, 25);
                 // Container for Status text (formerly Game Over) and restart hint
                 this.gameOverContainer = document.createElement('div');
                 this.gameOverContainer.style.position = 'absolute';
