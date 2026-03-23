@@ -35,8 +35,14 @@ export class MusicManager {
             pinky: 10    // minor seventh (creates lush minor 7th chord)
         };
 
-        // C Minor Pentatonic scale for root note mapping
-        this.scale = ['C2', 'Eb2', 'F2', 'G2', 'Bb2', 'C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4'];
+        // Extended C Minor Pentatonic — super bassy low end, modest highs
+        this.scale = [
+            'C1', 'Eb1', 'G1', 'Bb1',
+            'C2', 'Eb2', 'F2', 'G2', 'Bb2',
+            'C3', 'Eb3', 'F3', 'G3', 'Bb3',
+            'C4', 'Eb4', 'F4', 'G4', 'Bb4',
+            'C5', 'Eb5', 'F5'
+        ];
 
         // Pad timbre presets — psychedelic bass EDM
         this.padPresets = [

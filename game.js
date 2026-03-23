@@ -921,19 +921,15 @@ export var Game = /*#__PURE__*/ function() {
                         var canvasWidth = this.renderDiv.clientWidth;
                         var canvasHeight = this.renderDiv.clientHeight;
                         // C Minor Pentatonic Scale
+                        // Extended C Minor Pentatonic: SUPER bassy at bottom, modest highs at top
+                        // Bottom of screen (hands low) = deep sub-bass
+                        // Top of screen (hands high) = higher pitched but not extreme
                         var scale = [
-                            'C3',
-                            'Eb3',
-                            'F3',
-                            'G3',
-                            'Bb3',
-                            'C4',
-                            'Eb4',
-                            'F4',
-                            'G4',
-                            'Bb4',
-                            'C5',
-                            'Eb5'
+                            'C1', 'Eb1', 'G1', 'Bb1',
+                            'C2', 'Eb2', 'F2', 'G2', 'Bb2',
+                            'C3', 'Eb3', 'F3', 'G3', 'Bb3',
+                            'C4', 'Eb4', 'F4', 'G4', 'Bb4',
+                            'C5', 'Eb5', 'F5'
                         ];
                         for(var i = 0; i < this.hands.length; i++)_this1 = this, _loop(i);
                     } catch (error) {
