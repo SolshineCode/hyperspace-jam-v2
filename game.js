@@ -1584,46 +1584,6 @@ export var Game = /*#__PURE__*/ function() {
                     this._updateBeatIndicator();
                     if (this.waveformVisualizer) {
                         this.waveformVisualizer.update();
-                        // Pipe hand data into the hyperbolic geometry
-                        var synthHand = this.hands[0];
-                        if (synthHand && synthHand.landmarks) {
-                            var palm = synthHand.landmarks[9];
-                            // Normalize hand pos to -1..1 (mirrored X)
-                            var hx = -(palm.x * 2 - 1);
-                            var hy = -(palm.y * 2 - 1);
-                            // Compute finger glow (avg distance from palm)
-                            var fglow = 0;
-                            var tipIndices = [8, 12, 16, 20];
-                            for (var ti = 0; ti < tipIndices.length; ti++) {
-                                var tip = synthHand.landmarks[tipIndices[ti]];
-                                var fdx = tip.x - palm.x, fdy = tip.y - palm.y;
-                                fglow += Math.sqrt(fdx*fdx + fdy*fdy);
-                            }
-                            var palmDist = Math.abs(synthHand.landmarks[0].y - palm.y) || 0.05;
-                            fglow = Math.min(1, (fglow / 4) / (palmDist * 2));
-                            // Pitch from Y position (0=bottom, 1=top)
-                            var pitch = 1 - palm.y;
-                            // Hand spread
-                            var tips = [synthHand.landmarks[4], synthHand.landmarks[8], synthHand.landmarks[12], synthHand.landmarks[16], synthHand.landmarks[20]];
-                            var spreadSum = 0;
-                            for (var si = 0; si < tips.length - 1; si++) {
-                                var sdx = tips[si].x - tips[si+1].x, sdy = tips[si].y - tips[si+1].y;
-                                spreadSum += Math.sqrt(sdx*sdx + sdy*sdy);
-                            }
-                            var spread = Math.min(1, (spreadSum / 4) / (palmDist * 2));
-                            // Wrist angle
-                            var wdx = palm.x - synthHand.landmarks[0].x;
-                            var wdy = palm.y - synthHand.landmarks[0].y;
-                            var wAngle = Math.max(-1, Math.min(1, Math.atan2(wdx, -wdy) / (Math.PI / 2)));
-
-                            this.waveformVisualizer.updateHandData({
-                                handPos: { x: hx, y: hy },
-                                handSpread: spread,
-                                wristAngle: wAngle,
-                                pitch: pitch,
-                                fingerGlow: fglow
-                            });
-                        }
                     }
                     if (this.mandalaVisualizer) {
                         var mandalaHands = this.hands.map(function(h) { return h.points3D || null; }).filter(Boolean);
