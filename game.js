@@ -388,13 +388,15 @@ export var Game = /*#__PURE__*/ function() {
                 this.videoElement.playsInline = true;
                 this.videoElement.style.zIndex = '0'; // Ensure video is behind THREE canvas
                 this.renderDiv.appendChild(this.videoElement);
-                // Psychedelic hue rotation on the webcam feed
+                // Psychedelic hue rotation on the webcam feed — DRAMATIC
                 var hueAngle = 0;
                 var videoEl = this.videoElement;
                 setInterval(function() {
-                    hueAngle = (hueAngle + 0.5) % 360;
-                    videoEl.style.filter = 'saturate(1.8) contrast(1.2) hue-rotate(' + hueAngle + 'deg)';
-                }, 50);
+                    hueAngle = (hueAngle + 2) % 360;
+                    var sat = 2.5 + Math.sin(hueAngle * 0.05) * 1.0;
+                    var bright = 1.1 + Math.sin(hueAngle * 0.03) * 0.2;
+                    videoEl.style.filter = 'saturate(' + sat + ') contrast(1.3) brightness(' + bright + ') hue-rotate(' + hueAngle + 'deg)';
+                }, 33);
                 // Container for Status text (formerly Game Over) and restart hint
                 this.gameOverContainer = document.createElement('div');
                 this.gameOverContainer.style.position = 'absolute';
@@ -474,13 +476,13 @@ export var Game = /*#__PURE__*/ function() {
                     });
                 }
                 this.handLineMaterial = new THREE.LineBasicMaterial({
-                    color: 0x00ccff,
+                    color: 0xff00ff,
                     linewidth: 8
                 });
                 this.fingertipMaterialHand1 = new THREE.MeshBasicMaterial({
-                    color: 0xffffff,
+                    color: 0x00ffff,
                     side: THREE.DoubleSide
-                }); // White
+                }); // Neon Cyan
                 this.fingertipMaterialHand2 = new THREE.MeshBasicMaterial({
                     color: 0xffffff,
                     side: THREE.DoubleSide
@@ -1327,7 +1329,8 @@ export var Game = /*#__PURE__*/ function() {
                         // Volume and Pitch labels
                         var note = controlData.note, velocity = controlData.velocity, isFist = controlData.isFist;
                         if (isFist) {
-                            var fistLabel = this._createTextSprite("SYNTH ".concat(this.musicManager.currentSynthIndex + 1), {
+                            var presetNames = ['COSMIC DRONE', 'CRYSTAL BELL', 'DEEP OCEAN'];
+                            var fistLabel = this._createTextSprite(presetNames[this.musicManager.currentSynthIndex] || 'SYNTH', {
                                 fontsize: 22,
                                 backgroundColor: this.labelColors.evaPurple,
                                 textColor: this.labelColors.evaGreen
@@ -1336,20 +1339,20 @@ export var Game = /*#__PURE__*/ function() {
                             lineGroup.add(fistLabel);
                         } else {
                             var midPoint = new THREE.Vector3().lerpVectors(thumbPos, indexPos, 0.5);
-                            var volumeLabel = this._createTextSprite("Volume: ".concat(velocity.toFixed(2)), {
+                            var volumeLabel = this._createTextSprite("PAD: ".concat(note), {
                                 fontsize: 18,
                                 backgroundColor: this.labelColors.evaOrange,
                                 textColor: this.labelColors.white
                             });
                             volumeLabel.position.set(midPoint.x, midPoint.y, 2);
                             lineGroup.add(volumeLabel);
-                            var pitchLabel = this._createTextSprite("Pitch: ".concat(note), {
-                                fontsize: 18,
+                            var gestureLabel = this._createTextSprite("WIGGLE FINGERS TO PLAY", {
+                                fontsize: 14,
                                 backgroundColor: this.labelColors.evaGreen,
                                 textColor: this.labelColors.black
                             });
-                            pitchLabel.position.set(wristPos.x, wristPos.y + 60, 2); // Position above the wrist
-                            lineGroup.add(pitchLabel);
+                            gestureLabel.position.set(wristPos.x, wristPos.y + 60, 2);
+                            lineGroup.add(gestureLabel);
                         }
                     } else if (handIndex === 1) {
                         var fingerStates = controlData.fingerStates;
