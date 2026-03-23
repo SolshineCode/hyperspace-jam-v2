@@ -1,4 +1,4 @@
-# Hyperspace Jam — Session Handoff (2026-03-22)
+# Hyperspace Jam — Session Handoff (2026-03-22, updated end of session)
 
 ## What Was Accomplished
 
@@ -33,6 +33,14 @@ api.upload_folder(folder_path='.', repo_id='Solshine/hyperspace-jam', repo_type=
 ## What's Next — PHASE 3: Dynamic Geometric Shapes + Internal Tessellation
 
 See `.claude/vision-reference.md` for the full interaction spec (from Instagram reel analysis).
+
+### IMMEDIATE: Make existing effects more dramatic
+- Texture breathing is too subtle (5% scale) — increase to 15-20%
+- Pinch threshold (40px) may be too tight — try 60px
+- Mandala colors need more contrast/glow
+- Displacement filter needs bigger amplitude values
+- Background Poincaré shader at 0.45 alpha may be washing out — try making it more vivid
+- Per-finger expression controls (delay/reverb/speed) need user-visible labels
 
 ### Priority 1: Pinch Detection + Dynamic Shape State
 - Detect pinch gesture (thumb tip + index tip distance < threshold)
