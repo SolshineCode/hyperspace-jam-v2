@@ -2,52 +2,51 @@ export class DisplacementFilter {
     constructor(rendererCanvas, videoElement) {
         this.canvas = rendererCanvas;
         this.video = videoElement;
-        this.enabled = false;
+        this.enabled = true; // ON by default — trippy from the start
         this.time = 0;
     }
 
     toggle() {
         this.enabled = !this.enabled;
         if (!this.enabled) {
-            // Reset transforms
             this.canvas.style.transform = '';
-            this.video.style.transform = 'scaleX(-1)'; // Restore original mirror
+            this.video.style.transform = 'scaleX(-1)';
         }
+        console.log('Displacement filter: ' + (this.enabled ? 'ON' : 'OFF'));
     }
 
-    update(amplitude, handPositions) {
+    update(amplitude) {
         if (!this.enabled) return;
-        this.time += 0.016; // ~60fps
+        this.time += 0.016;
 
-        // Barrel distortion via CSS perspective + scale oscillation
-        var breathScale = 1.0 + 0.015 * Math.sin(this.time * 1.5);
-        var ampScale = 1.0 + amplitude * 0.03;
+        // Use a minimum baseline so effects are visible even without loud audio
+        var amp = Math.max(0.3, amplitude || 0);
+
+        // Breathing scale — always visible, boosted by audio
+        var breathScale = 1.0 + 0.03 * Math.sin(this.time * 1.2);
+        var ampScale = 1.0 + amp * 0.04;
         var totalScale = breathScale * ampScale;
 
-        // Chromatic aberration simulation: slight RGB offset via text-shadow-like effect
-        // (CSS can't do true chromatic aberration, but we can do skew + hue shift)
-        var skewX = Math.sin(this.time * 0.7) * amplitude * 0.5;
-        var skewY = Math.cos(this.time * 0.9) * amplitude * 0.3;
+        // Wobble skew — trippy warping
+        var skewX = Math.sin(this.time * 0.7) * (1.0 + amp * 3.0);
+        var skewY = Math.cos(this.time * 0.9) * (0.6 + amp * 2.0);
 
-        // Wave distortion
-        var waveX = Math.sin(this.time * 2.0) * amplitude * 2;
-        var waveY = Math.cos(this.time * 1.7) * amplitude * 1.5;
+        // Wave translation — scene drifts
+        var waveX = Math.sin(this.time * 1.3) * (2.0 + amp * 6.0);
+        var waveY = Math.cos(this.time * 1.0) * (1.5 + amp * 4.0);
 
-        // Apply to Three.js canvas (the overlay)
+        // Three.js canvas
         this.canvas.style.transform =
             'scale(' + totalScale + ') ' +
             'skew(' + skewX + 'deg, ' + skewY + 'deg) ' +
             'translate(' + waveX + 'px, ' + waveY + 'px)';
 
-        // Apply matching distortion to video (keeps them aligned)
+        // Video (matching but inverted skew for trippy desync)
         this.video.style.transform =
-            'scaleX(-1) ' + // Keep mirror
+            'scaleX(-1) ' +
             'scale(' + totalScale + ') ' +
-            'skew(' + (-skewX * 0.5) + 'deg, ' + (-skewY * 0.5) + 'deg) ' +
-            'translate(' + (waveX * 0.5) + 'px, ' + (waveY * 0.5) + 'px)';
-
-        // Also modulate the video's hue rotation faster when amplitude is high
-        // (This enhances the existing psychedelic hue rotation)
+            'skew(' + (-skewX * 0.7) + 'deg, ' + (-skewY * 0.7) + 'deg) ' +
+            'translate(' + (waveX * 0.6) + 'px, ' + (waveY * 0.6) + 'px)';
     }
 
     dispose() {
