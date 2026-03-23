@@ -1351,8 +1351,8 @@ export var Game = /*#__PURE__*/ function() {
                         lineGroup.add(line);
                         // Volume and Pitch labels
                         var note = controlData.note, velocity = controlData.velocity, isFist = controlData.isFist;
+                        var presetNames = ['HYPNOTIC SUB', 'ACID GROWL', 'TRANCE WASH'];
                         if (isFist) {
-                            var presetNames = ['COSMIC DRONE', 'CRYSTAL BELL', 'DEEP OCEAN'];
                             var fistLabel = this._createTextSprite(presetNames[this.musicManager.currentSynthIndex] || 'SYNTH', {
                                 fontsize: 22,
                                 backgroundColor: this.labelColors.evaPurple,
@@ -1361,37 +1361,79 @@ export var Game = /*#__PURE__*/ function() {
                             fistLabel.position.set(wristPos.x, wristPos.y + 60, 2);
                             lineGroup.add(fistLabel);
                         } else {
+                            // Volume label between thumb and index
                             var midPoint = new THREE.Vector3().lerpVectors(thumbPos, indexPos, 0.5);
-                            var volumeLabel = this._createTextSprite("PAD: ".concat(note), {
-                                fontsize: 18,
+                            var volumeLabel = this._createTextSprite("VOL ".concat(Math.round(velocity * 100), "%"), {
+                                fontsize: 16,
                                 backgroundColor: this.labelColors.evaOrange,
                                 textColor: this.labelColors.white
                             });
-                            volumeLabel.position.set(midPoint.x, midPoint.y, 2);
+                            volumeLabel.position.set(midPoint.x, midPoint.y - 20, 2);
                             lineGroup.add(volumeLabel);
-                            var gestureLabel = this._createTextSprite("WIGGLE FINGERS TO PLAY", {
-                                fontsize: 14,
+                            // Pitch label above wrist
+                            var pitchLabel = this._createTextSprite(note, {
+                                fontsize: 20,
                                 backgroundColor: this.labelColors.evaGreen,
                                 textColor: this.labelColors.black
                             });
-                            gestureLabel.position.set(wristPos.x, wristPos.y + 60, 2);
-                            lineGroup.add(gestureLabel);
+                            pitchLabel.position.set(wristPos.x, wristPos.y + 50, 2);
+                            lineGroup.add(pitchLabel);
+                            // Finger labels at each fingertip
+                            var fingerLabels = [
+                                { idx: 8, text: 'ROOT', color: this.labelColors.evaGreen },
+                                { idx: 12, text: 'm3', color: this.labelColors.evaPurple },
+                                { idx: 16, text: '5th', color: this.labelColors.evaOrange },
+                                { idx: 20, text: 'm7', color: this.labelColors.evaRed }
+                            ];
+                            for (var fl = 0; fl < fingerLabels.length; fl++) {
+                                var fp = points3D[fingerLabels[fl].idx];
+                                if (fp) {
+                                    var fLabel = this._createTextSprite(fingerLabels[fl].text, {
+                                        fontsize: 12,
+                                        backgroundColor: fingerLabels[fl].color,
+                                        textColor: this.labelColors.white
+                                    });
+                                    fLabel.position.set(fp.x, fp.y + 25, 2);
+                                    lineGroup.add(fLabel);
+                                }
+                            }
                         }
                     } else if (handIndex === 1) {
                         var fingerStates = controlData.fingerStates;
+                        // Per-finger drum labels at each fingertip
+                        var drumFingers = [
+                            { idx: 8, finger: 'index', drum: 'KICK' },
+                            { idx: 12, finger: 'middle', drum: 'SNARE' },
+                            { idx: 16, finger: 'ring', drum: 'HIHAT' },
+                            { idx: 20, finger: 'pinky', drum: 'CLAP' }
+                        ];
+                        for (var df = 0; df < drumFingers.length; df++) {
+                            var dfp = points3D[drumFingers[df].idx];
+                            if (dfp) {
+                                var isActive = fingerStates[drumFingers[df].finger];
+                                var dLabel = this._createTextSprite(drumFingers[df].drum, {
+                                    fontsize: 12,
+                                    backgroundColor: isActive ? this.labelColors.evaGreen : this.labelColors.evaRed,
+                                    textColor: this.labelColors.white
+                                });
+                                dLabel.position.set(dfp.x, dfp.y + 25, 2);
+                                lineGroup.add(dLabel);
+                            }
+                        }
+                        // Drum status at wrist
                         var activeDrums = Object.entries(fingerStates).filter(function(param) {
                             var _param = _sliced_to_array(param, 2), _ = _param[0], isUp = _param[1];
                             return isUp;
                         }).map(function(param) {
                             var _param = _sliced_to_array(param, 2), finger = _param[0], _ = _param[1];
                             return drumManager.getFingerToDrumMap()[finger];
-                        }).join(', ');
-                        var drumLabel = this._createTextSprite("Drums: ".concat(activeDrums || 'None'), {
-                            fontsize: 18,
+                        }).join(' ');
+                        var drumLabel = this._createTextSprite(activeDrums || 'DRUMS', {
+                            fontsize: 16,
                             backgroundColor: this.labelColors.evaRed,
                             textColor: this.labelColors.white
                         });
-                        drumLabel.position.set(wristPos.x, wristPos.y + 60, 2);
+                        drumLabel.position.set(wristPos.x, wristPos.y + 50, 2);
                         lineGroup.add(drumLabel);
                     }
                 }
