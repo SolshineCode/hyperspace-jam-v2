@@ -220,6 +220,9 @@ export class MusicManager {
 
         this._continuousActive = false;
 
+        // Pre-allocate touch synths (no dynamic allocation = no memory leak)
+        this._initTouchSynths();
+
         } catch(e) {
             console.error('MusicManager start() error:', e);
         }
@@ -320,13 +323,23 @@ export class MusicManager {
 
             if (!this._pendingDisposals) this._pendingDisposals = new Set();
             const synths = [padData.synth, padData.harmonySynth].filter(Boolean);
+
+            // Force-dispose oldest if too many pending (prevents memory leak on hand flicker)
+            if (this._pendingDisposals.size > 8) {
+                const oldest = this._pendingDisposals.values().next().value;
+                try { oldest.dispose(); } catch(e) {}
+                this._pendingDisposals.delete(oldest);
+            }
+
             for (const synth of synths) {
                 if (!this._pendingDisposals.has(synth)) {
                     this._pendingDisposals.add(synth);
+                    // Disconnect immediately to stop audio, dispose after release tail
+                    try { synth.disconnect(); } catch(e) {}
                     setTimeout(() => {
                         try { synth.dispose(); } catch(e) {}
                         this._pendingDisposals.delete(synth);
-                    }, 2000);
+                    }, 1000);
                 }
             }
             this.padSynths.delete(handId);
@@ -612,88 +625,84 @@ export class MusicManager {
     // --- Finger Touch Sounds ---
     // Unique sound per finger, triggered when any two fingertips meet
 
+    // Pre-allocate touch synths (called once during start)
+    _initTouchSynths() {
+        // Pre-allocated synths — NO dynamic allocation, NO memory leak
+        this._touchSynths = {};
+
+        // Thumb: Water drip
+        this._touchSynths.thumb = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+        }).connect(this.reverb || this.limiter);
+        this._touchSynths.thumb.volume.value = -6;
+
+        // Index: Bubble pop
+        this._touchSynths.index = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
+        }).connect(this._shimmerReverb || this.reverb || this.limiter);
+        this._touchSynths.index.volume.value = -4;
+
+        // Middle: Sparkle
+        this._touchSynths.middle = new Tone.MetalSynth({
+            harmonicity: 8, modulationIndex: 16,
+            resonance: 5000, octaves: 0.5,
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }
+        }).connect(this._shimmerReverb || this.reverb || this.limiter);
+        this._touchSynths.middle.volume.value = -8;
+
+        // Ring: Glass chime
+        this._touchSynths.ring = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
+        }).connect(this._shimmerReverb || this.reverb || this.limiter);
+        this._touchSynths.ring.volume.value = -4;
+
+        // Pinky: Zap spark
+        this._touchSynths.pinky = new Tone.FMSynth({
+            harmonicity: 12, modulationIndex: 30,
+            oscillator: { type: 'square' },
+            envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
+            modulation: { type: 'sawtooth' },
+            modulationEnvelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 }
+        }).connect(this.delay || this.limiter);
+        this._touchSynths.pinky.volume.value = -6;
+
+        this._touchCooldown = 0;
+    }
+
     triggerFingerTouch(finger1, finger2) {
-        if (!this.isStarted || this._panicMuted) return;
+        if (!this.isStarted || this._panicMuted || !this._touchSynths) return;
 
         const now = performance.now();
-        if (!this._touchCooldown) this._touchCooldown = 0;
-        if ((now - this._touchCooldown) < 80) return; // debounce
+        if ((now - this._touchCooldown) < 100) return; // debounce
         this._touchCooldown = now;
 
-        // Create one-shot synths per touch — unique character based on which fingers
-        // Use the "more interesting" finger of the pair to pick the sound
         const fingerPriority = ['pinky', 'ring', 'middle', 'index', 'thumb'];
         const primary = fingerPriority.indexOf(finger1) < fingerPriority.indexOf(finger2) ? finger1 : finger2;
 
         try {
-            let synth;
             switch (primary) {
                 case 'thumb':
-                    // Water drip — sine with fast pitch fall
-                    synth = new Tone.Synth({
-                        oscillator: { type: 'sine' },
-                        envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
-                    }).connect(this.reverb || this.limiter);
-                    synth.volume.value = -6;
-                    synth.triggerAttackRelease('G5', '32n', Tone.now(), 0.7);
-                    // Pitch drop for drip effect
-                    synth.frequency.rampTo(200, 0.12);
+                    this._touchSynths.thumb.triggerAttackRelease('G5', '32n', Tone.now(), 0.7);
                     break;
-
                 case 'index':
-                    // Bubble pop — short sine burst with upward pitch
-                    synth = new Tone.Synth({
-                        oscillator: { type: 'sine' },
-                        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
-                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
-                    synth.volume.value = -4;
-                    synth.triggerAttackRelease('C5', '64n', Tone.now(), 0.8);
-                    synth.frequency.rampTo(2000, 0.06);
+                    this._touchSynths.index.triggerAttackRelease('C5', '64n', Tone.now(), 0.8);
                     break;
-
                 case 'middle':
-                    // Sparkle — high metallic ping
-                    synth = new Tone.MetalSynth({
-                        harmonicity: 8, modulationIndex: 16,
-                        resonance: 5000, octaves: 0.5,
-                        envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }
-                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
-                    synth.volume.value = -8;
-                    synth.triggerAttackRelease('32n', Tone.now(), 0.6);
+                    this._touchSynths.middle.triggerAttackRelease('32n', Tone.now(), 0.6);
                     break;
-
-                case 'ring':
-                    // Glass chime — triangle with long reverb tail
-                    synth = new Tone.Synth({
-                        oscillator: { type: 'triangle' },
-                        envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
-                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
-                    synth.volume.value = -4;
+                case 'ring': {
                     const chimeNote = ['E6', 'G6', 'B6', 'D7'][Math.floor(Math.random() * 4)];
-                    synth.triggerAttackRelease(chimeNote, '16n', Tone.now(), 0.7);
+                    this._touchSynths.ring.triggerAttackRelease(chimeNote, '16n', Tone.now(), 0.7);
                     break;
-
+                }
                 case 'pinky':
-                    // Zap spark — FM burst, electric
-                    synth = new Tone.FMSynth({
-                        harmonicity: 12, modulationIndex: 30,
-                        oscillator: { type: 'square' },
-                        envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
-                        modulation: { type: 'sawtooth' },
-                        modulationEnvelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 }
-                    }).connect(this.delay || this.limiter);
-                    synth.volume.value = -6;
-                    synth.triggerAttackRelease('A5', '64n', Tone.now(), 0.9);
+                    this._touchSynths.pinky.triggerAttackRelease('A5', '64n', Tone.now(), 0.9);
                     break;
             }
-
-            // Auto-dispose after sound completes
-            if (synth) {
-                setTimeout(() => { try { synth.dispose(); } catch(e) {} }, 1500);
-            }
-        } catch(e) {
-            console.warn('Touch sound error:', e);
-        }
+        } catch(e) {}
     }
 
     // --- Timbre Cycling ---
@@ -705,7 +714,13 @@ export class MusicManager {
         this.padSynths.forEach((padData, handId) => {
             activePads.push({ handId, root: padData.currentRoot });
             padData.synth.triggerRelease(Tone.now());
-            setTimeout(() => padData.synth.dispose(), 2000);
+            if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
+            try { padData.synth.disconnect(); } catch(e) {}
+            try { if (padData.harmonySynth) padData.harmonySynth.disconnect(); } catch(e) {}
+            setTimeout(() => {
+                try { padData.synth.dispose(); } catch(e) {}
+                try { if (padData.harmonySynth) padData.harmonySynth.dispose(); } catch(e) {}
+            }, 1000);
         });
         this.padSynths.clear();
 
