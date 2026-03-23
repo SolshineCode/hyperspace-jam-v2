@@ -184,7 +184,7 @@ export class MusicManager {
     // --- Pad Management (Layer 1) ---
 
     startArpeggio(handId, rootNote) {
-        if (!this.isStarted || this.padSynths.has(handId)) return;
+        if (!this.isStarted || this.padSynths.has(handId) || this._panicMuted) return;
 
         const preset = this.padPresets[this.currentSynthIndex];
 
@@ -278,7 +278,7 @@ export class MusicManager {
     // --- Gesture Processing (called per frame) ---
 
     updateGesture(handId, gestureData) {
-        if (!this.isStarted) return;
+        if (!this.isStarted || this._panicMuted) return;
 
         const {
             fingerStates,
@@ -421,10 +421,14 @@ export class MusicManager {
         }
     }
 
-    // --- PANIC: kill ALL sound immediately ---
+    // --- PANIC: kill ALL sound immediately and block new sound for 1 second ---
     panic() {
+        // Set mute flag — blocks startArpeggio and updateGesture for 1 second
+        this._panicMuted = true;
+        setTimeout(() => { this._panicMuted = false; }, 1000);
+
         // Stop all pads
-        this.padSynths.forEach((padData, handId) => {
+        this.padSynths.forEach((padData) => {
             try { padData.synth.triggerRelease(Tone.now()); } catch(e) {}
             try { if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now()); } catch(e) {}
             setTimeout(() => {
@@ -446,12 +450,23 @@ export class MusicManager {
             try { this.pluckSynth.releaseAll(Tone.now()); } catch(e) {}
         }
 
+        // Kill the wobble LFO temporarily
+        if (this.wobbleLFO) {
+            this.wobbleLFO.stop();
+            setTimeout(() => { try { this.wobbleLFO.start(); } catch(e) {} }, 1000);
+        }
+
         // Reset filter to open
         if (this.filter) {
             this.filter.frequency.value = 16000;
         }
 
-        console.log('PANIC — all sound killed');
+        // Reset all effect wet levels
+        if (this.reverb) this.reverb.wet.value = 0.35;
+        if (this.delay) this.delay.wet.value = 0.2;
+        if (this.chorus) this.chorus.depth = 0.6;
+
+        console.log('PANIC — all sound killed, muted for 1 second');
     }
 
     getAnalyser() {
