@@ -326,67 +326,93 @@ export class MusicManager {
     }
 
     // --- Gesture Processing: Synth Hand (hand 0) ---
+    // HYBRID: triggers on curl→extend PLUS continuous modulation from extension amount
+    // Every finger ALWAYS changes the sound when extended — impossible to not hear it
 
     updateGesture(handId, gestureData) {
         if (!this.isStarted || this._panicMuted) return;
 
-        const {
-            fingerStates,
-            fingerVelocities,
-            handVelocity,
-            rootNote,
-            volume
-        } = gestureData;
+        const { fingerStates, handVelocity, rootNote } = gestureData;
 
         const now = performance.now();
         const cooldowns = this.fingerCooldowns.get(handId);
         if (!cooldowns) return;
 
-        // Track continuous extension values
         if (!this._prevExtensions[handId]) {
             this._prevExtensions[handId] = { index: 0, middle: 0, ring: 0, pinky: 0 };
         }
         const prevExt = this._prevExtensions[handId];
 
-        const extValues = gestureData.fingerExtensions || {
+        const ext = gestureData.fingerExtensions || {
             index: fingerStates.index ? 0.8 : 0.1,
             middle: fingerStates.middle ? 0.8 : 0.1,
             ring: fingerStates.ring ? 0.8 : 0.1,
             pinky: fingerStates.pinky ? 0.8 : 0.1
         };
 
-        for (const finger of ['index', 'middle', 'ring', 'pinky']) {
-            const ext = extValues[finger];
-            const prev = prevExt[finger];
-            const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
+        const rootFreq = Tone.Frequency(rootNote).toFrequency();
 
-            const justCrossedUp = prev < 0.25 && ext > 0.35;
-
-            if (justCrossedUp && offCooldown) {
-                cooldowns[finger] = now;
-
-                const rootFreq = Tone.Frequency(rootNote).toFrequency();
-                const semitones = this.fingerIntervals[finger];
-                const noteFreq = rootFreq * Math.pow(2, semitones / 12);
-                const noteName = Tone.Frequency(noteFreq).toNote();
-
-                const synth = this.fingerSynths[finger];
-                if (synth) {
-                    if (finger === 'ring') {
-                        // MetalSynth uses frequency number
-                        synth.triggerAttackRelease(noteFreq, '4n', Tone.now(), 0.8);
-                    } else if (finger === 'middle') {
-                        // Laser zap: trigger at high pitch, it sweeps down via FM
-                        const zapFreq = noteFreq * 2;
-                        synth.triggerAttackRelease(Tone.Frequency(zapFreq).toNote(), '16n', Tone.now(), 0.9);
-                    } else {
-                        synth.triggerAttackRelease(noteName, '4n', Tone.now(), 0.8);
-                    }
-                }
+        // === INDEX: Acid Squelch — CONTINUOUS filter cutoff from extension ===
+        // Extended = open filter (bright), curled = closed (dark)
+        if (this.fingerSynths.index) {
+            const cutoff = 200 + ext.index * 4000;
+            this.fingerSynths.index.filter.frequency.rampTo(cutoff, 0.05);
+            // Trigger on curl→extend transition
+            if (prevExt.index < 0.2 && ext.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.index = now;
+                this.fingerSynths.index.triggerAttackRelease(
+                    Tone.Frequency(rootFreq).toNote(), '4n', Tone.now(), 0.8
+                );
             }
-
-            prevExt[finger] = ext;
         }
+
+        // === MIDDLE: Laser Zap — extension controls volume of a sustained tone ===
+        if (this.fingerSynths.middle) {
+            // Continuous: extension amount = volume of the zap synth
+            const middleVol = ext.middle > 0.3 ? (-20 + ext.middle * 20) : -100;
+            this.fingerSynths.middle.volume.rampTo(middleVol, 0.05);
+            // Trigger on transition
+            if (prevExt.middle < 0.2 && ext.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.middle = now;
+                const zapFreq = rootFreq * Math.pow(2, 3/12); // minor 3rd
+                this.fingerSynths.middle.triggerAttackRelease(
+                    Tone.Frequency(zapFreq).toNote(), '8n', Tone.now(), 0.9
+                );
+            }
+        }
+
+        // === RING: Crystal Chime — extension controls resonance ===
+        if (this.fingerSynths.ring) {
+            // Continuous: extension = resonance brightness
+            this.fingerSynths.ring.resonance = 500 + ext.ring * 4000;
+            // Trigger on transition
+            if (prevExt.ring < 0.2 && ext.ring > 0.35 && (now - cooldowns.ring) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.ring = now;
+                const chimeFreq = rootFreq * Math.pow(2, 7/12); // 5th
+                this.fingerSynths.ring.triggerAttackRelease(chimeFreq, '4n', Tone.now(), 0.8);
+            }
+        }
+
+        // === PINKY: Sub Drop — extension controls pitch bend depth ===
+        if (this.fingerSynths.pinky) {
+            // Trigger on transition — always very audible
+            if (prevExt.pinky < 0.2 && ext.pinky > 0.35 && (now - cooldowns.pinky) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.pinky = now;
+                this.fingerSynths.pinky.triggerAttackRelease('C1', '4n', Tone.now(), 0.9);
+            }
+        }
+
+        // === CONTINUOUS: Delay wet amount from average finger extension ===
+        const avgExt = (ext.index + ext.middle + ext.ring + ext.pinky) / 4;
+        if (this.delay) {
+            this.delay.wet.value = 0.05 + avgExt * 0.4;
+        }
+
+        // Store for next frame
+        prevExt.index = ext.index;
+        prevExt.middle = ext.middle;
+        prevExt.ring = ext.ring;
+        prevExt.pinky = ext.pinky;
 
         // Percussive hits on sharp hand movement
         if ((now - this.percCooldown) > this.PERC_COOLDOWN_MS) {
@@ -396,19 +422,17 @@ export class MusicManager {
 
             if (magnitude > this.HAND_VELOCITY_THRESHOLD) {
                 this.percCooldown = now;
-
                 if (vy > this.HAND_VELOCITY_THRESHOLD) {
-                    const intensity = Math.min(1, vy * 3);
-                    this.kickSynth.triggerAttackRelease('C1', '8n', Tone.now(), intensity);
+                    this.kickSynth.triggerAttackRelease('C1', '8n', Tone.now(), Math.min(1, vy * 3));
                 } else if (Math.abs(vx) > this.HAND_VELOCITY_THRESHOLD) {
-                    const intensity = Math.min(1, Math.abs(vx) * 3);
-                    this.hatSynth.triggerAttackRelease('16n', Tone.now(), intensity);
+                    this.hatSynth.triggerAttackRelease('16n', Tone.now(), Math.min(1, Math.abs(vx) * 3));
                 }
             }
         }
     }
 
     // --- Gesture Processing: Drum Hand (hand 1) ---
+    // HYBRID: triggers PLUS continuous modulation — every finger always does something
 
     updateDrumGesture(gestureData) {
         if (!this.isStarted || this._panicMuted) return;
@@ -418,49 +442,65 @@ export class MusicManager {
         const cooldowns = this._drumFingerCooldowns;
 
         const fingerStates = gestureData.fingerStates || {};
-        const extValues = gestureData.fingerExtensions || {
+        const ext = gestureData.fingerExtensions || {
             index: fingerStates.index ? 0.8 : 0.1,
             middle: fingerStates.middle ? 0.8 : 0.1,
             ring: fingerStates.ring ? 0.8 : 0.1,
             pinky: fingerStates.pinky ? 0.8 : 0.1
         };
 
-        for (const finger of ['index', 'middle', 'ring', 'pinky']) {
-            const ext = extValues[finger];
-            const prev = prevExt[finger];
-            const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
+        // === INDEX: Kick — trigger + continuous volume ===
+        if (this.drumFingerSynths.index) {
+            if (prevExt.index < 0.2 && ext.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.index = now;
+                this.drumFingerSynths.index.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
+            }
+        }
 
-            const justCrossedUp = prev < 0.25 && ext > 0.35;
+        // === MIDDLE: Riser — continuous: extension controls filter sweep position ===
+        if (this._riserFilter) {
+            this._riserFilter.baseFrequency = 100 + ext.middle * 3000;
+        }
+        if (this.drumFingerSynths.middle) {
+            if (prevExt.middle < 0.2 && ext.middle > 0.35 && (now - cooldowns.middle) > 200) {
+                cooldowns.middle = now;
+                this.drumFingerSynths.middle.triggerAttackRelease('4n', Tone.now(), 0.7);
+            }
+        }
 
-            if (justCrossedUp && offCooldown) {
-                cooldowns[finger] = now;
-
-                const synth = this.drumFingerSynths[finger];
-                if (!synth) continue;
-
-                if (finger === 'index') {
-                    // Kick drum
-                    synth.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
-                } else if (finger === 'middle') {
-                    // Sci-Fi Riser — noise burst through sweeping filter
-                    synth.triggerAttackRelease('8n', Tone.now(), 0.7);
-                } else if (finger === 'ring') {
-                    // Granular Stutter — 4 rapid hits
-                    for (let i = 0; i < 4; i++) {
-                        setTimeout(() => {
-                            try {
-                                synth.triggerAttackRelease('64n', Tone.now(), 0.6);
-                            } catch(e) { /* synth busy */ }
-                        }, i * 45); // ~45ms apart = glitchy rapid fire
-                    }
-                } else if (finger === 'pinky') {
-                    // Reverb Crash — single hit into massive reverb tail
-                    synth.triggerAttackRelease('8n', Tone.now(), 0.8);
+        // === RING: Stutter — trigger rapid hits ===
+        if (this.drumFingerSynths.ring) {
+            if (prevExt.ring < 0.2 && ext.ring > 0.35 && (now - cooldowns.ring) > 250) {
+                cooldowns.ring = now;
+                for (let i = 0; i < 4; i++) {
+                    setTimeout(() => {
+                        try { this.drumFingerSynths.ring.triggerAttackRelease('64n', Tone.now(), 0.6); } catch(e) {}
+                    }, i * 45);
                 }
             }
-
-            prevExt[finger] = ext;
         }
+
+        // === PINKY: Reverb Crash — trigger + continuous reverb tail amount ===
+        if (this._crashReverb) {
+            this._crashReverb.wet.value = 0.5 + ext.pinky * 0.5;
+        }
+        if (this.drumFingerSynths.pinky) {
+            if (prevExt.pinky < 0.2 && ext.pinky > 0.35 && (now - cooldowns.pinky) > 300) {
+                cooldowns.pinky = now;
+                this.drumFingerSynths.pinky.triggerAttackRelease('8n', Tone.now(), 0.8);
+            }
+        }
+
+        // === CONTINUOUS: chorus depth from average drum hand extension ===
+        const avgDrumExt = (ext.index + ext.middle + ext.ring + ext.pinky) / 4;
+        if (this.chorus) {
+            this.chorus.depth = 0.3 + avgDrumExt * 0.7;
+        }
+
+        prevExt.index = ext.index;
+        prevExt.middle = ext.middle;
+        prevExt.ring = ext.ring;
+        prevExt.pinky = ext.pinky;
     }
 
     // --- Finger Expression (effects modulation) ---
