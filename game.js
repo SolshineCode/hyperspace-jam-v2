@@ -1561,6 +1561,13 @@ export var Game = /*#__PURE__*/ function() {
             value: function _animate() {
                 requestAnimationFrame(this._animate.bind(this));
                 if (this.gameState === 'tracking') {
+                    // Periodically check AudioContext hasn't been suspended by browser
+                    if (!this._lastAudioCheck) this._lastAudioCheck = 0;
+                    var now = performance.now();
+                    if (now - this._lastAudioCheck > 3000) {
+                        this._lastAudioCheck = now;
+                        this.musicManager.ensureAudioActive();
+                    }
                     var deltaTime = this.clock.getDelta();
                     this._updateHands();
                     this._updateBeatIndicator();

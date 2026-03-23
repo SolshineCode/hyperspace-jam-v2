@@ -47,8 +47,21 @@ export class MusicManager {
         this._SMOOTH_ALPHA = 0.25;
     }
 
+    // Resume AudioContext if browser suspended it (called on clicks + periodically)
+    async ensureAudioActive() {
+        if (Tone.context.state !== 'running') {
+            console.log('AudioContext suspended, resuming...');
+            await Tone.context.resume();
+            await Tone.start();
+        }
+    }
+
     async start() {
-        if (this.isStarted) return;
+        if (this.isStarted) {
+            // Already started — just make sure context is alive
+            await this.ensureAudioActive();
+            return;
+        }
         await Tone.start();
 
         try {
