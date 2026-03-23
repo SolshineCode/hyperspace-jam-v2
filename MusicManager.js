@@ -23,7 +23,7 @@ export class MusicManager {
         this.fingerCooldowns = new Map(); // handId -> { index: timestamp, middle: timestamp, ... }
         this.percCooldown = 0;            // global percussion cooldown timestamp
 
-        this.FINGER_COOLDOWN_MS = 200;
+        this.FINGER_COOLDOWN_MS = 120; // shorter = more responsive finger plucks
         this.PERC_COOLDOWN_MS = 150;
         this.HAND_VELOCITY_THRESHOLD = 0.15;
 
@@ -132,7 +132,7 @@ export class MusicManager {
             }
         });
         this.pluckSynth.connect(this.delay);
-        this.pluckSynth.volume.value = -8;
+        this.pluckSynth.volume.value = -2; // loud and punchy — clearly distinct from pad
 
         // === LAYER 3: Sub-Bass (always-on low foundation) ===
         this.subBass = new Tone.Synth({
@@ -307,10 +307,10 @@ export class MusicManager {
                 const noteFreq = rootFreq * Math.pow(2, semitones / 12);
                 const noteName = Tone.Frequency(noteFreq).toNote();
 
-                // Velocity from finger movement speed
-                const vel = Math.max(0.1, Math.min(0.8, (fingerVelocities[finger] || 0.3)));
+                // Loud, punchy velocity — always clearly audible
+                const vel = Math.max(0.4, Math.min(0.9, (fingerVelocities[finger] || 0.5) + 0.3));
 
-                this.pluckSynth.triggerAttackRelease(noteName, '8n', Tone.now(), vel);
+                this.pluckSynth.triggerAttackRelease(noteName, '4n', Tone.now(), vel);
             }
         }
 
