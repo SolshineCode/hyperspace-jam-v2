@@ -898,6 +898,12 @@ export var Game = /*#__PURE__*/ function() {
                                         var prevFD = _this1._prevFingerDistances[i] || { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
                                         var handVelX = hand.anchorPos.x - prevHP.x;
                                         var handVelY = hand.anchorPos.y - prevHP.y;
+                                        // Wrist angle: angle of wrist→palm vector vs vertical
+                                        // 0 = hand pointing straight up, 1 = tilted fully right, -1 = fully left
+                                        var wristToMcp_dx = palmCenter.x - wrist.x;
+                                        var wristToMcp_dy = palmCenter.y - wrist.y;
+                                        var wristAngleRad = Math.atan2(wristToMcp_dx, -wristToMcp_dy); // 0=up, +π/2=right
+                                        var wristAngle = Math.max(-1, Math.min(1, wristAngleRad / (Math.PI / 2))); // normalize to -1..1
                                         _this1.musicManager.updateGesture(i, {
                                             fingerStates: fingerStates,
                                             prevFingerStates: prevFS,
@@ -912,6 +918,7 @@ export var Game = /*#__PURE__*/ function() {
                                             },
                                             handVelocity: { x: handVelX, y: handVelY },
                                             handSpread: handSpread,
+                                            wristAngle: wristAngle,
                                             rootNote: note,
                                             volume: velocity
                                         });
@@ -947,6 +954,11 @@ export var Game = /*#__PURE__*/ function() {
                                         var dfdist = Math.sqrt(dfdx * dfdx + dfdy * dfdy);
                                         drumFingerDistances[dfname] = Math.max(0, Math.min(1, dfdist / (drumPalmDist * 2)));
                                     }
+                                    // Drum hand wrist angle
+                                    var drumWristToMcp_dx = drumPalmCenter.x - drumWrist.x;
+                                    var drumWristToMcp_dy = drumPalmCenter.y - drumWrist.y;
+                                    var drumWristAngleRad = Math.atan2(drumWristToMcp_dx, -drumWristToMcp_dy);
+                                    var drumWristAngle = Math.max(-1, Math.min(1, drumWristAngleRad / (Math.PI / 2)));
                                     if (_this1.musicManager.updateDrumGesture) {
                                         _this1.musicManager.updateDrumGesture({
                                             fingerStates: fingerStates,
@@ -957,7 +969,8 @@ export var Game = /*#__PURE__*/ function() {
                                                 middle: drumFingerDistances.middle,
                                                 ring: drumFingerDistances.ring,
                                                 pinky: drumFingerDistances.pinky
-                                            }
+                                            },
+                                            wristAngle: drumWristAngle
                                         });
                                     }
                                 }

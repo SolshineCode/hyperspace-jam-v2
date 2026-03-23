@@ -433,19 +433,54 @@ export class MusicManager {
             this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 22, 0.05);
         }
 
-        // === COMBINED: Hand spread → chorus + detuning + wobble ===
+        // === WRIST ANGLE: Massive tonal modulation ===
+        // -1 = tilted left, 0 = straight up, +1 = tilted right
+        // Controls: master filter cutoff, pad detune, delay time, chorus speed
+        const wristAngle = gestureData.wristAngle || 0;
+        const absAngle = Math.abs(wristAngle);
+
+        // Master filter: straight up = bright (16kHz), tilted = dark (200Hz)
+        if (this.filter) {
+            const filterCutoff = 16000 * Math.pow(0.02, absAngle); // 16kHz → ~300Hz
+            this.filter.frequency.rampTo(filterCutoff, 0.1);
+        }
+
+        // Pad detune: tilted = detuned/dissonant, up to ±100 cents
+        this.padSynths.forEach(padData => {
+            padData.synth.detune.rampTo(wristAngle * 100, 0.1);
+            if (padData.harmonySynth) padData.harmonySynth.detune.rampTo(-wristAngle * 80, 0.1);
+        });
+
+        // Delay time shift: tilted right = longer delay, left = shorter
+        if (this.delay) {
+            const baseDelay = 0.2; // ~8th note
+            const delayShift = baseDelay + wristAngle * 0.15; // 0.05 → 0.35
+            try { this.delay.delayTime.rampTo(Math.max(0.01, delayShift), 0.1); } catch(e) {}
+        }
+
+        // Chorus speed: more tilt = faster chorus wobble
+        if (this.chorus) {
+            this.chorus.frequency.value = 1 + absAngle * 8; // 1→9 Hz
+        }
+
+        // Wobble LFO speed: angle adds to wobble
+        if (this.wobbleLFO) {
+            this.wobbleLFO.frequency.value = 0.3 + absAngle * 6;
+        }
+
+        // FM continuous: wrist angle adds extra modulation depth
+        if (this.middleContinuous) {
+            try {
+                const angleModBoost = absAngle * 10;
+                this.middleContinuous.harmonicity.value = 2 + absAngle * 4;
+            } catch(e) {}
+        }
+
+        // === Hand spread → chorus depth (additive with wrist angle) ===
         const spread = gestureData.handSpread || 0;
         if (this.chorus) {
             this.chorus.depth = 0.3 + spread * 0.7;
-            this.chorus.frequency.value = 1 + spread * 4;
         }
-        if (this.wobbleLFO) {
-            this.wobbleLFO.frequency.value = 0.2 + spread * 8;
-        }
-        this.padSynths.forEach(padData => {
-            padData.synth.detune.rampTo(spread * 50, 0.1);
-            if (padData.harmonySynth) padData.harmonySynth.detune.rampTo(-spread * 30, 0.1);
-        });
 
         // === DELAY: Controlled by ring (shimmer) ===
         if (this.delay) {
@@ -574,10 +609,20 @@ export class MusicManager {
             }
         }
 
-        // Chorus from average
-        const avgDist = (d.index + d.middle + d.ring + d.pinky) / 4;
-        if (this.chorus) {
-            this.chorus.depth = 0.3 + avgDist * 0.7;
+        // === WRIST ANGLE on drum hand: modulates riser filter + stutter pitch ===
+        const drumWristAngle = gestureData.wristAngle || 0;
+        const drumAbsAngle = Math.abs(drumWristAngle);
+        if (this._riserFilter) {
+            // Wrist tilt shifts the riser's center frequency dramatically
+            this._riserFilter.baseFrequency = 100 + Math.pow(d.middle, 2) * 5000 + drumAbsAngle * 3000;
+        }
+        // Stutter volume boost when tilted
+        if (this.drumFingerSynths.ring && d.ring > 0.3) {
+            this.drumFingerSynths.ring.volume.value = -8 + drumAbsAngle * 6;
+        }
+        // Crash reverb decay feels longer when tilted
+        if (this._crashReverb) {
+            this._crashReverb.wet.value = 0.3 + d.pinky * 0.5 + drumAbsAngle * 0.2;
         }
 
         for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
@@ -588,16 +633,8 @@ export class MusicManager {
     // --- Finger Expression ---
 
     updateFingerExpression(params) {
-        if (!this.isStarted) return;
-        const { handSpread } = params;
-
-        if (this.wobbleLFO) {
-            this.wobbleLFO.frequency.value = 0.2 + handSpread * 6;
-        }
-        this.padSynths.forEach(padData => {
-            padData.synth.detune.rampTo(handSpread * 40, 0.1);
-            if (padData.harmonySynth) padData.harmonySynth.detune.rampTo(-handSpread * 25, 0.1);
-        });
+        // Wrist angle now handles most modulation in updateGesture
+        // This is kept for backward compat but defers to wrist angle control
     }
 
     // --- Timbre Cycling ---
