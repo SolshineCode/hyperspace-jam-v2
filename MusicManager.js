@@ -563,13 +563,63 @@ export class MusicManager {
         }
 
         // =====================================================================
-        // DRUM SAMPLES — finger distance = repeat rate (BPM)
+        // IMMEDIATE TRIGGERS — distinct sound on every finger open/close
+        // This is what makes wiggling fingers feel responsive
+        // =====================================================================
+        const OPEN_THRESH = 0.3;   // finger considered "open" above this
+        const CLOSE_THRESH = 0.15; // finger considered "closed" below this
+
+        if (this._drumPlayersLoaded) {
+            // MIDDLE: Kick on open, muted kick on close
+            if (prevExt.middle < OPEN_THRESH && d.middle >= OPEN_THRESH) {
+                try { this.drumPlayers.player('kick').start(Tone.now()); } catch(e) {}
+            } else if (prevExt.middle >= OPEN_THRESH && d.middle < CLOSE_THRESH) {
+                try {
+                    this.drumPlayers.player('kick').start(Tone.now());
+                    this.drumPlayers.player('kick').volume.value = -12;
+                    setTimeout(() => { try { this.drumPlayers.player('kick').volume.value = 0; } catch(e) {} }, 100);
+                } catch(e) {}
+            }
+
+            // RING: Hihat on open, soft tick on close
+            if (prevExt.ring < OPEN_THRESH && d.ring >= OPEN_THRESH) {
+                try { this.drumPlayers.player('hihat').start(Tone.now()); } catch(e) {}
+            } else if (prevExt.ring >= OPEN_THRESH && d.ring < CLOSE_THRESH) {
+                try {
+                    this.drumPlayers.player('hihat').start(Tone.now());
+                    this.drumPlayers.player('hihat').volume.value = -10;
+                    setTimeout(() => { try { this.drumPlayers.player('hihat').volume.value = -2; } catch(e) {} }, 100);
+                } catch(e) {}
+            }
+
+            // PINKY: Clap on open, soft clap on close
+            if (prevExt.pinky < OPEN_THRESH && d.pinky >= OPEN_THRESH) {
+                try { this.drumPlayers.player('clap').start(Tone.now()); } catch(e) {}
+            } else if (prevExt.pinky >= OPEN_THRESH && d.pinky < CLOSE_THRESH) {
+                try {
+                    this.drumPlayers.player('clap').start(Tone.now());
+                    this.drumPlayers.player('clap').volume.value = -10;
+                    setTimeout(() => { try { this.drumPlayers.player('clap').volume.value = 0; } catch(e) {} }, 100);
+                } catch(e) {}
+            }
+        }
+
+        // THUMB: Zap on open
+        if (this.drumThumbSynth) {
+            if (prevExt.thumb < OPEN_THRESH && d.thumb >= OPEN_THRESH) {
+                const zapNote = ['C4','E4','G4','Bb4'][Math.floor(Math.random() * 4)];
+                try { this.drumThumbSynth.triggerAttackRelease(zapNote, '64n', Tone.now(), 0.8); } catch(e) {}
+            }
+        }
+
+        // =====================================================================
+        // BPM LOOP — plays while finger is held open (secondary layer)
         // Middle=KICK, Ring=HIHAT, Pinky=CLAP
         // =====================================================================
 
-        const DEAD_ZONE = 0.18;  // larger dead zone = cleaner silence
-        const MIN_BPM = 30;     // slower, more ambient
-        const MAX_BPM = 160;    // downtempo cap
+        const DEAD_ZONE = 0.25;  // higher than trigger thresh so loop starts after open
+        const MIN_BPM = 30;
+        const MAX_BPM = 160;
 
         const distToInterval = (dist) => {
             if (dist < DEAD_ZONE) return Infinity;
@@ -601,14 +651,7 @@ export class MusicManager {
             }
         }
 
-        // --- THUMB: Glitch zap on extend ---
-        if (this.drumThumbSynth) {
-            if (prevExt.thumb < 0.2 && d.thumb > 0.35 && (now - (cooldowns.thumb || 0)) > 200) {
-                cooldowns.thumb = now;
-                const zapNote = ['C4','E4','G4','Bb4'][Math.floor(Math.random() * 4)];
-                try { this.drumThumbSynth.triggerAttackRelease(zapNote, '64n', Tone.now(), 0.7); } catch(e) {}
-            }
-        }
+        // (thumb trigger handled above in immediate triggers section)
 
         // === WRIST ANGLE: boosts drum volume when tilted ===
         const drumWristAngle = gestureData.wristAngle || 0;
