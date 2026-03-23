@@ -451,8 +451,7 @@ export var Game = /*#__PURE__*/ function() {
                 this.renderer.domElement.style.left = '0';
                 this.renderer.domElement.style.zIndex = '1'; // Canvas on top of video
                 this.renderer.domElement.style.mixBlendMode = 'screen';
-                // Glow/trail effect via CSS — lightweight, GPU-composited
-                this.renderer.domElement.style.filter = 'blur(0.8px) brightness(1.2) drop-shadow(0 0 8px rgba(255,0,255,0.4)) drop-shadow(0 0 20px rgba(0,255,255,0.2))';
+                // No CSS filters — they cause compositing lag
                 this.renderDiv.appendChild(this.renderer.domElement);
                 this.displacementFilter = new DisplacementFilter(this.renderer.domElement, this.videoElement);
                 var gameRef = this;
@@ -705,10 +704,10 @@ export var Game = /*#__PURE__*/ function() {
                                         video: {
                                             facingMode: 'user',
                                             width: {
-                                                ideal: 1280
+                                                ideal: 640
                                             },
                                             height: {
-                                                ideal: 720
+                                                ideal: 480
                                             }
                                         },
                                         audio: false
@@ -1450,7 +1449,7 @@ export var Game = /*#__PURE__*/ function() {
                     }
                 });
                 // --- Draw Fingertip & Wrist Circles ---
-                var fingertipRadius = 8, wristRadius = 12, circleSegments = 16;
+                var fingertipRadius = 12, wristRadius = 16, circleSegments = 12;
                 this.fingertipLandmarkIndices.forEach(function(index) {
                     var landmarkPosition = points3D[index];
                     if (landmarkPosition) {
@@ -1602,9 +1601,9 @@ export var Game = /*#__PURE__*/ function() {
                     }
                     // Simple line color pulse (lightweight)
                     var pulseAmp = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
-                    var brightness = 0.5 + Math.min(0.5, pulseAmp * 2);
+                    var brightness = 0.7 + Math.min(0.3, pulseAmp * 2);
                     if (this.handLineMaterial) {
-                        this.handLineMaterial.color.setHSL(0.83, 1.0, brightness); // magenta pulse
+                        this.handLineMaterial.color.setHSL(0.83, 1.0, brightness); // bright magenta pulse
                     }
                 }
                 this.renderer.render(this.scene, this.camera);

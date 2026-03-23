@@ -304,9 +304,9 @@ export class MusicManager {
         const clamped = Math.max(0, Math.min(1, velocity));
         this.handVolumes.set(handId, clamped);
         const db = -30 + clamped * 26;
-        padData.synth.volume.rampTo(db, 0.1);
-        if (padData.thirdSynth) padData.thirdSynth.volume.rampTo(db - 4, 0.1);
-        if (padData.fifthSynth) padData.fifthSynth.volume.rampTo(db - 3, 0.1);
+        padData.synth.volume.rampTo(db, 0.03);
+        if (padData.thirdSynth) padData.thirdSynth.volume.rampTo(db - 4, 0.03);
+        if (padData.fifthSynth) padData.fifthSynth.volume.rampTo(db - 3, 0.03);
     }
 
     stopArpeggio(handId) {
@@ -385,9 +385,7 @@ export class MusicManager {
 
         // INDEX: No effect (square/volume finger — fully independent)
 
-        // Throttle expensive continuous updates to every 3rd frame
-        this._frameCount++;
-        const doHeavyUpdate = (this._frameCount % 3 === 0);
+        const doHeavyUpdate = true; // no throttling — responsiveness > CPU savings
 
         // === MIDDLE (ROOT): 303 Acid Squelch ===
         // Distance = filter cutoff. Close=dark rumble, extended=screaming acid.
@@ -404,7 +402,7 @@ export class MusicManager {
             }
         }
         if (this.middleContinuous && doHeavyUpdate) {
-            this.middleContinuous.volume.rampTo(d.middle < 0.1 ? -Infinity : -36 + d.middle * 22, 0.1);
+            this.middleContinuous.volume.rampTo(d.middle < 0.1 ? -Infinity : -36 + d.middle * 22, 0.03);
         }
 
         // === RING (5th): Goa Pluck ===
@@ -427,7 +425,7 @@ export class MusicManager {
                 this._shimmerReverb.wet.value = 0.2 + d.ring * 0.6;
             }
             if (this.ringContinuous) {
-                this.ringContinuous.volume.rampTo(d.ring < 0.1 ? -Infinity : -40 + d.ring * 22, 0.1);
+                this.ringContinuous.volume.rampTo(d.ring < 0.1 ? -Infinity : -40 + d.ring * 22, 0.03);
             }
         }
 
@@ -452,15 +450,12 @@ export class MusicManager {
                 this.distortion.wet.value = d.pinky * 0.5;
             }
             if (this.pinkyContinuous) {
-                this.pinkyContinuous.volume.rampTo(d.pinky < 0.1 ? -Infinity : -40 + d.pinky * 22, 0.1);
+                this.pinkyContinuous.volume.rampTo(d.pinky < 0.1 ? -Infinity : -40 + d.pinky * 22, 0.03);
             }
         }
 
-        // === WRIST ANGLE: Massive tonal modulation (throttled) ===
-        if (!doHeavyUpdate) {
-            // Skip wrist angle processing on non-heavy frames
-            // Still store prev extensions and handle triggers above
-        } else {
+        // === WRIST ANGLE: Massive tonal modulation ===
+        {
         // -1 = tilted left, 0 = straight up, +1 = tilted right
         // Controls: master filter cutoff, pad detune, delay time, chorus speed
         const wristAngle = gestureData.wristAngle || 0;
@@ -469,21 +464,21 @@ export class MusicManager {
         // Master filter: straight up = bright (16kHz), tilted = dark (200Hz)
         if (this.filter) {
             const filterCutoff = 16000 * Math.pow(0.02, absAngle); // 16kHz → ~300Hz
-            this.filter.frequency.rampTo(filterCutoff, 0.1);
+            this.filter.frequency.rampTo(filterCutoff, 0.03);
         }
 
         // Pad detune: tilted = detuned/dissonant, up to ±100 cents
         this.padSynths.forEach(padData => {
-            padData.synth.detune.rampTo(wristAngle * 100, 0.1);
-            if (padData.thirdSynth) padData.thirdSynth.detune.rampTo(-wristAngle * 60, 0.1);
-            if (padData.fifthSynth) padData.fifthSynth.detune.rampTo(wristAngle * 40, 0.1);
+            padData.synth.detune.rampTo(wristAngle * 100, 0.03);
+            if (padData.thirdSynth) padData.thirdSynth.detune.rampTo(-wristAngle * 60, 0.03);
+            if (padData.fifthSynth) padData.fifthSynth.detune.rampTo(wristAngle * 40, 0.03);
         });
 
         // Delay time shift: tilted right = longer delay, left = shorter
         if (this.delay) {
             const baseDelay = 0.2; // ~8th note
             const delayShift = baseDelay + wristAngle * 0.15; // 0.05 → 0.35
-            try { this.delay.delayTime.rampTo(Math.max(0.01, delayShift), 0.1); } catch(e) {}
+            try { this.delay.delayTime.rampTo(Math.max(0.01, delayShift), 0.03); } catch(e) {}
         }
 
         // Chorus speed: more tilt = faster chorus wobble
