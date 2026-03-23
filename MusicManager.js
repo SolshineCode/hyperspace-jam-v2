@@ -35,8 +35,8 @@ export class MusicManager {
             { name: 'Hypnotic Sub', oscillator: { type: 'sine' }, envelope: { attack: 0.4, decay: 0.5, sustain: 0.6, release: 0.5 } },
             { name: 'Acid Growl', oscillator: { type: 'sawtooth' }, envelope: { attack: 0.1, decay: 0.3, sustain: 0.5, release: 0.4 } },
             { name: 'Trance Wash', oscillator: { type: 'triangle' }, envelope: { attack: 0.5, decay: 0.6, sustain: 0.55, release: 0.6 } },
-            { name: 'PWM Swirl', oscillator: { type: 'pwm', modulationFrequency: 0.5 }, envelope: { attack: 0.3, decay: 0.4, sustain: 0.7, release: 0.6 } },
-            { name: 'Fat Square', oscillator: { type: 'fatsquare', spread: 30 }, envelope: { attack: 0.2, decay: 0.3, sustain: 0.6, release: 0.5 } }
+            { name: 'Detuned Saw', oscillator: { type: 'fatsawtooth', spread: 40, count: 3 }, envelope: { attack: 0.3, decay: 0.4, sustain: 0.7, release: 0.6 } },
+            { name: 'Fat Square', oscillator: { type: 'fatsquare', spread: 30, count: 3 }, envelope: { attack: 0.2, decay: 0.3, sustain: 0.6, release: 0.5 } }
         ];
         this.currentSynthIndex = 0;
 
@@ -54,6 +54,7 @@ export class MusicManager {
         if (this.isStarted) return;
         await Tone.start();
 
+        try {
         // === MASTER EFFECTS CHAIN ===
         this.limiter = new Tone.Limiter(-3).toDestination();
 
@@ -108,13 +109,13 @@ export class MusicManager {
         }).connect(this.delay);
         this.fingerSynths.ring.volume.value = -8;
 
-        // === PINKY: Sub Drop + Bitcrusher — distance controls crush depth ===
-        this.bitcrusher = new Tone.BitCrusher({ bits: 16 }).connect(this.limiter);
+        // === PINKY: Sub Drop + Distortion — distance controls distortion amount ===
+        this.distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this.limiter);
         this.fingerSynths.pinky = new Tone.MembraneSynth({
             pitchDecay: 0.3, octaves: 6,
             oscillator: { type: 'sine' },
             envelope: { attack: 0.001, decay: 0.8, sustain: 0, release: 0.5 }
-        }).connect(this.bitcrusher);
+        }).connect(this.distortion);
         this.fingerSynths.pinky.volume.value = -2;
 
         // === CONTINUOUS SYNTHS (always sounding when hand present) ===
@@ -199,6 +200,9 @@ export class MusicManager {
         // Track continuous synth state
         this._continuousActive = false;
 
+        } catch(e) {
+            console.error('MusicManager start() error:', e);
+        }
         this.isStarted = true;
         console.log('Psychedelic EDM engine v2 ready — 10-finger distance-from-palm control');
     }
@@ -411,9 +415,10 @@ export class MusicManager {
                 this.fingerSynths.pinky.triggerAttackRelease('C1', '4n', Tone.now(), 0.9);
             }
         }
-        if (this.bitcrusher) {
-            // 16 bits (clean) → 2 bits (destroyed)
-            this.bitcrusher.bits.value = Math.max(2, Math.round(16 - d.pinky * 14));
+        if (this.distortion) {
+            // 0 (clean) → 1 (destroyed)
+            this.distortion.distortion = Math.pow(d.pinky, 2);
+            this.distortion.wet.value = d.pinky * 0.8;
         }
         if (this.reverb) {
             this.reverb.wet.value = 0.15 + d.pinky * 0.55;
@@ -645,7 +650,7 @@ export class MusicManager {
         if (this.reverb) this.reverb.wet.value = 0.35;
         if (this.delay) this.delay.wet.value = 0.2;
         if (this.chorus) this.chorus.depth = 0.6;
-        if (this.bitcrusher) this.bitcrusher.bits.value = 16;
+        if (this.distortion) { this.distortion.distortion = 0; this.distortion.wet.value = 0; }
 
         this._prevDrumExtensions = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._drumFingerCooldowns = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
