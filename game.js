@@ -906,8 +906,14 @@ export var Game = /*#__PURE__*/ function() {
                                 if (wasVisible) {
                                     if (i === 0) {
                                         _this1.musicManager.stopArpeggio(i);
+                                        // Kill sub-bass and plucks when music hand leaves
+                                        if (_this1.musicManager.subBass) {
+                                            try { _this1.musicManager.subBass.triggerRelease(Tone.now()); } catch(e) {}
+                                        }
+                                        if (_this1.musicManager.pluckSynth) {
+                                            try { _this1.musicManager.pluckSynth.releaseAll(Tone.now()); } catch(e) {}
+                                        }
                                     } else if (i === 1) {
-                                        // Disable all drums when hand is gone
                                         drumManager.updateActiveDrums({});
                                     }
                                 }
