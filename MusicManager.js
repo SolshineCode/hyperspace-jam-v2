@@ -43,17 +43,17 @@ export class MusicManager {
             {
                 name: 'Hypnotic Sub',
                 oscillator: { type: 'sine' },
-                envelope: { attack: 0.4, decay: 0, sustain: 1, release: 1.5 }
+                envelope: { attack: 0.4, decay: 0.5, sustain: 0.6, release: 0.5 }
             },
             {
                 name: 'Acid Growl',
                 oscillator: { type: 'sawtooth' },
-                envelope: { attack: 0.1, decay: 0.2, sustain: 0.85, release: 1.0 }
+                envelope: { attack: 0.1, decay: 0.3, sustain: 0.5, release: 0.4 }
             },
             {
                 name: 'Trance Wash',
                 oscillator: { type: 'triangle' },
-                envelope: { attack: 0.6, decay: 0.5, sustain: 0.9, release: 2.5 }
+                envelope: { attack: 0.5, decay: 0.6, sustain: 0.55, release: 0.6 }
             }
         ];
         this.currentSynthIndex = 0;
@@ -113,9 +113,9 @@ export class MusicManager {
             oscillator: { type: 'sine' },
             envelope: {
                 attack: 0.005,
-                decay: 0.4,
-                sustain: 0.05,
-                release: 1.8
+                decay: 0.3,
+                sustain: 0.02,
+                release: 0.6
             },
             modulation: { type: 'sine' },
             modulationEnvelope: {
@@ -413,6 +413,39 @@ export class MusicManager {
         if (this.chorus) {
             this.chorus.depth = 0.4 + value * 0.4;
         }
+    }
+
+    // --- PANIC: kill ALL sound immediately ---
+    panic() {
+        // Stop all pads
+        this.padSynths.forEach((padData, handId) => {
+            try { padData.synth.triggerRelease(Tone.now()); } catch(e) {}
+            try { if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now()); } catch(e) {}
+            setTimeout(() => {
+                try { padData.synth.dispose(); } catch(e) {}
+                try { if (padData.harmonySynth) padData.harmonySynth.dispose(); } catch(e) {}
+            }, 500);
+        });
+        this.padSynths.clear();
+        this.handVolumes.clear();
+        this.fingerCooldowns.clear();
+
+        // Stop sub-bass
+        if (this.subBass) {
+            try { this.subBass.triggerRelease(Tone.now()); } catch(e) {}
+        }
+
+        // Release all pluck notes
+        if (this.pluckSynth) {
+            try { this.pluckSynth.releaseAll(Tone.now()); } catch(e) {}
+        }
+
+        // Reset filter to open
+        if (this.filter) {
+            this.filter.frequency.value = 16000;
+        }
+
+        console.log('PANIC — all sound killed');
     }
 
     getAnalyser() {
