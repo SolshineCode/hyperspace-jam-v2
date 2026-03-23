@@ -79,24 +79,24 @@ bool insidePolygon(vec2 p, int count) {
 
 // --- Map point inside polygon to unit disk ---
 vec2 mapToDisk(vec2 p, int count) {
-    // Compute centroid
-    vec2 centroid = vec2(0.0);
+    // Compute ctr
+    vec2 ctr = vec2(0.0);
     for (int i = 0; i < 4; i++) {
         if (i >= count) break;
-        centroid += u_vertices[i];
+        ctr += u_vertices[i];
     }
-    centroid /= float(count);
+    ctr /= float(count);
 
-    // Find max distance from centroid to any vertex
+    // Find max distance from ctr to any vertex
     float maxDist = 0.0;
     for (int i = 0; i < 4; i++) {
         if (i >= count) break;
-        float d = length(u_vertices[i] - centroid);
+        float d = length(u_vertices[i] - ctr);
         if (d > maxDist) maxDist = d;
     }
 
-    // Normalize: centroid -> origin, scale so vertices sit near disk edge
-    vec2 offset = (p - centroid) / max(maxDist, 0.001);
+    // Normalize: ctr -> origin, scale so vertices sit near disk edge
+    vec2 offset = (p - ctr) / max(maxDist, 0.001);
 
     // Clamp to disk
     float r = length(offset);
