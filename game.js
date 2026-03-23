@@ -1471,6 +1471,22 @@ export var Game = /*#__PURE__*/ function() {
                         var dispAmplitude = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
                         this.displacementFilter.update(dispAmplitude, []);
                     }
+                    // --- Pulse hand skeleton lines to audio ---
+                    var pulseAmp = this.waveformVisualizer ? (this.waveformVisualizer.lastAmplitude || 0) : 0;
+                    var pulseTime = performance.now() * 0.003;
+                    var pulse = 0.4 + pulseAmp * 3.0 + Math.sin(pulseTime) * 0.15;
+                    pulse = Math.min(1.0, pulse);
+                    // Cycle line color through neon hues based on time + amplitude
+                    var hue = (pulseTime * 0.1 + pulseAmp * 2.0) % 1.0;
+                    if (this.handLineMaterial) {
+                        this.handLineMaterial.color.setHSL(hue, 1.0, 0.3 + pulse * 0.4);
+                    }
+                    if (this.fingertipMaterialHand1) {
+                        this.fingertipMaterialHand1.color.setHSL((hue + 0.33) % 1.0, 1.0, 0.4 + pulse * 0.4);
+                    }
+                    if (this.fingertipMaterialHand2) {
+                        this.fingertipMaterialHand2.color.setHSL((hue + 0.66) % 1.0, 1.0, 0.4 + pulse * 0.4);
+                    }
                 }
                 this.renderer.render(this.scene, this.camera);
             }
