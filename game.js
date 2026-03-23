@@ -831,20 +831,40 @@ export var Game = /*#__PURE__*/ function() {
                                             _this1.musicManager.updateArpeggio(i, note);
                                         }
                                         _this1.musicManager.updateArpeggioVolume(i, velocity);
-                                        // --- Finger Expression Controls ---
-                                        // Each finger's curl amount (0=curled, 1=extended) based on tip vs PIP joint Y
+                                        // --- Finger Distance-from-Palm Controls ---
+                                        // Each finger's Euclidean distance from palm center, normalized by palm size
                                         var wrist = smoothedLandmarks[0];
+                                        var palmCenter = smoothedLandmarks[9]; // middle finger MCP = palm center
+                                        var palmDist = Math.sqrt(Math.pow(wrist.x - palmCenter.x, 2) + Math.pow(wrist.y - palmCenter.y, 2)) || 0.05;
+                                        // Fingertip landmarks: thumb=4, index=8, middle=12, ring=16, pinky=20
+                                        var fingerTips = {
+                                            thumb: smoothedLandmarks[4],
+                                            index: smoothedLandmarks[8],
+                                            middle: smoothedLandmarks[12],
+                                            ring: smoothedLandmarks[16],
+                                            pinky: smoothedLandmarks[20]
+                                        };
+                                        var fingerDistances = {};
+                                        for (var fname in fingerTips) {
+                                            var tip = fingerTips[fname];
+                                            var fdx = tip.x - palmCenter.x;
+                                            var fdy = tip.y - palmCenter.y;
+                                            var fdist = Math.sqrt(fdx * fdx + fdy * fdy);
+                                            // Normalize: 0 = touching palm, 1 = fully extended (~ 2x palm size)
+                                            fingerDistances[fname] = Math.max(0, Math.min(1, fdist / (palmDist * 2)));
+                                        }
+                                        // Also keep legacy extension values for compatibility
+                                        var palmSize = palmDist;
                                         var middleTip = smoothedLandmarks[12];
                                         var middlePip = smoothedLandmarks[10];
                                         var ringTip = smoothedLandmarks[16];
                                         var ringPip = smoothedLandmarks[14];
                                         var pinkyTip = smoothedLandmarks[20];
                                         var pinkyPip = smoothedLandmarks[18];
-                                        // Finger extension: how far tip is above its PIP joint (normalized)
-                                        var palmSize = Math.abs(wrist.y - smoothedLandmarks[9].y) || 0.1;
                                         var middleExt = Math.max(0, Math.min(1, (middlePip.y - middleTip.y) / palmSize));
                                         var ringExt = Math.max(0, Math.min(1, (ringPip.y - ringTip.y) / palmSize));
                                         var pinkyExt = Math.max(0, Math.min(1, (pinkyPip.y - pinkyTip.y) / palmSize));
+                                        var indexExt = Math.max(0, Math.min(1, (smoothedLandmarks[6].y - smoothedLandmarks[8].y) / palmSize));
                                         // Hand spread: average distance between adjacent fingertips / palm size
                                         var tips = [smoothedLandmarks[4], smoothedLandmarks[8], middleTip, ringTip, pinkyTip];
                                         var spreadSum = 0;
@@ -855,14 +875,15 @@ export var Game = /*#__PURE__*/ function() {
                                         }
                                         var handSpread = Math.max(0, Math.min(1, (spreadSum / 4) / (palmSize * 2)));
                                         _this1.musicManager.updateFingerExpression({
+                                            fingerDistances: fingerDistances,
                                             middleFinger: middleExt,
                                             ringFinger: ringExt,
                                             pinkyFinger: pinkyExt,
                                             handSpread: handSpread
                                         });
                                         // --- Gesture-Driven Music ---
-                                        var indexExt = Math.max(0, Math.min(1, (smoothedLandmarks[6].y - smoothedLandmarks[8].y) / palmSize));
                                         var fingerStates = {
+                                            thumb: fingerDistances.thumb > 0.3,
                                             index: indexExt > 0.3,
                                             middle: middleExt > 0.3,
                                             ring: ringExt > 0.3,
@@ -871,31 +892,32 @@ export var Game = /*#__PURE__*/ function() {
                                         // Track previous states and compute velocities
                                         if (!_this1._prevFingerStates) _this1._prevFingerStates = {};
                                         if (!_this1._prevHandPos) _this1._prevHandPos = {};
-                                        var prevFS = _this1._prevFingerStates[i] || { index: false, middle: false, ring: false, pinky: false };
+                                        if (!_this1._prevFingerDistances) _this1._prevFingerDistances = {};
+                                        var prevFS = _this1._prevFingerStates[i] || { thumb: false, index: false, middle: false, ring: false, pinky: false };
                                         var prevHP = _this1._prevHandPos[i] || { x: hand.anchorPos.x, y: hand.anchorPos.y };
+                                        var prevFD = _this1._prevFingerDistances[i] || { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
                                         var handVelX = hand.anchorPos.x - prevHP.x;
                                         var handVelY = hand.anchorPos.y - prevHP.y;
                                         _this1.musicManager.updateGesture(i, {
                                             fingerStates: fingerStates,
                                             prevFingerStates: prevFS,
+                                            fingerDistances: fingerDistances,
+                                            prevFingerDistances: prevFD,
                                             fingerExtensions: {
+                                                thumb: fingerDistances.thumb,
                                                 index: indexExt,
                                                 middle: middleExt,
                                                 ring: ringExt,
                                                 pinky: pinkyExt
                                             },
-                                            fingerVelocities: {
-                                                index: Math.abs(indexExt - (prevFS.index ? 1 : 0)),
-                                                middle: Math.abs(middleExt - (prevFS.middle ? 1 : 0)),
-                                                ring: Math.abs(ringExt - (prevFS.ring ? 1 : 0)),
-                                                pinky: Math.abs(pinkyExt - (prevFS.pinky ? 1 : 0))
-                                            },
                                             handVelocity: { x: handVelX, y: handVelY },
+                                            handSpread: handSpread,
                                             rootNote: note,
                                             volume: velocity
                                         });
                                         _this1._prevFingerStates[i] = fingerStates;
                                         _this1._prevHandPos[i] = { x: hand.anchorPos.x, y: hand.anchorPos.y };
+                                        _this1._prevFingerDistances[i] = Object.assign({}, fingerDistances);
                                     } else {
                                         // If it is a fist, make sure the arpeggio is stopped
                                         _this1.musicManager.stopArpeggio(i);
@@ -908,19 +930,33 @@ export var Game = /*#__PURE__*/ function() {
                                     });
                                     // Per-finger drum sounds via updateDrumGesture
                                     var drumWrist = smoothedLandmarks[0];
-                                    var drumPalmSize = Math.abs(drumWrist.y - smoothedLandmarks[9].y) || 0.1;
-                                    var drumIndexExt = Math.max(0, Math.min(1, (smoothedLandmarks[6].y - smoothedLandmarks[8].y) / drumPalmSize));
-                                    var drumMiddleExt = Math.max(0, Math.min(1, (smoothedLandmarks[10].y - smoothedLandmarks[12].y) / drumPalmSize));
-                                    var drumRingExt = Math.max(0, Math.min(1, (smoothedLandmarks[14].y - smoothedLandmarks[16].y) / drumPalmSize));
-                                    var drumPinkyExt = Math.max(0, Math.min(1, (smoothedLandmarks[18].y - smoothedLandmarks[20].y) / drumPalmSize));
+                                    var drumPalmCenter = smoothedLandmarks[9];
+                                    var drumPalmDist = Math.sqrt(Math.pow(drumWrist.x - drumPalmCenter.x, 2) + Math.pow(drumWrist.y - drumPalmCenter.y, 2)) || 0.05;
+                                    var drumFingerTips = {
+                                        thumb: smoothedLandmarks[4],
+                                        index: smoothedLandmarks[8],
+                                        middle: smoothedLandmarks[12],
+                                        ring: smoothedLandmarks[16],
+                                        pinky: smoothedLandmarks[20]
+                                    };
+                                    var drumFingerDistances = {};
+                                    for (var dfname in drumFingerTips) {
+                                        var dtip = drumFingerTips[dfname];
+                                        var dfdx = dtip.x - drumPalmCenter.x;
+                                        var dfdy = dtip.y - drumPalmCenter.y;
+                                        var dfdist = Math.sqrt(dfdx * dfdx + dfdy * dfdy);
+                                        drumFingerDistances[dfname] = Math.max(0, Math.min(1, dfdist / (drumPalmDist * 2)));
+                                    }
                                     if (_this1.musicManager.updateDrumGesture) {
                                         _this1.musicManager.updateDrumGesture({
                                             fingerStates: fingerStates,
+                                            fingerDistances: drumFingerDistances,
                                             fingerExtensions: {
-                                                index: drumIndexExt,
-                                                middle: drumMiddleExt,
-                                                ring: drumRingExt,
-                                                pinky: drumPinkyExt
+                                                thumb: drumFingerDistances.thumb,
+                                                index: drumFingerDistances.index,
+                                                middle: drumFingerDistances.middle,
+                                                ring: drumFingerDistances.ring,
+                                                pinky: drumFingerDistances.pinky
                                             }
                                         });
                                     }
