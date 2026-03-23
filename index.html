@@ -32,17 +32,22 @@
     <body style="width: 100%; height: 100%; overflow: hidden; margin: 0;">
         <div id="renderDiv" style="width: 100%; height: 100%; margin: 0;">
 
-            <div id="controls-hint">
+            <div id="legend-toggle" onclick="document.getElementById('controls-hint').classList.toggle('hidden')">
+                <span class="toggle-icon">?</span>
+                <span class="toggle-title">Hyperspace Jam</span>
+            </div>
+
+            <div id="controls-hint" class="hidden">
                 <div class="hint-title">HYPERSPACE JAM</div>
                 <div class="hint-grid">
                     <span class="hint-icon">↕️</span><span class="hint-desc">Hand high = bright · Hand low = DEEP bass</span>
                     <span class="hint-icon">👌</span><span class="hint-desc">Pinch thumb+index = volume</span>
                     <span class="hint-icon">🖐️</span><span class="hint-desc">Extend fingers = play chord notes</span>
                     <span class="hint-icon">✊</span><span class="hint-desc">Make fist = cycle synth sound</span>
-                    <span class="hint-icon">👋</span><span class="hint-desc">Quick move down = kick · sideways = hat</span>
-                    <span class="hint-icon">🤚</span><span class="hint-desc">2nd hand fingers up/down = drums</span>
-                    <span class="hint-icon">📏</span><span class="hint-desc">Spread fingers wide = wobble bass + detune</span>
-                    <span class="hint-icon">📷</span><span class="hint-desc">Hand close to cam = warm filter</span>
+                    <span class="hint-icon">🤲</span><span class="hint-desc">Tilt wrist = filter sweep + detune</span>
+                    <span class="hint-icon">🤚</span><span class="hint-desc">2nd hand fingers = glitch blip · grain · wash</span>
+                    <span class="hint-icon">📏</span><span class="hint-desc">Spread fingers wide = wobble bass</span>
+                    <span class="hint-icon">👆</span><span class="hint-desc">Touch fingertips together = sparkle sounds</span>
                 </div>
                 <div class="hint-fade">spacebar = panic stop · D = toggle displacement</div>
             </div>

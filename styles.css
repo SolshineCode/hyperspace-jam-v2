@@ -15,6 +15,53 @@ html, body {
     position: relative;
 }
 
+/* --- Legend toggle button (always visible) --- */
+#legend-toggle {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    z-index: 210;
+    cursor: pointer;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+#legend-toggle:hover {
+    background: rgba(0, 0, 0, 0.7);
+    border-color: rgba(0, 255, 255, 0.3);
+}
+
+.toggle-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: rgba(0, 255, 255, 0.2);
+    color: rgba(0, 255, 255, 0.9);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.toggle-title {
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 400;
+    font-style: italic;
+}
+
 /* --- Controls hint overlay --- */
 #controls-hint {
     position: absolute;
