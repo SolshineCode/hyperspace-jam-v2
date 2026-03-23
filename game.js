@@ -1440,8 +1440,8 @@ export var Game = /*#__PURE__*/ function() {
                             lineGroup.add(pitchLabel);
                             // Finger labels at each fingertip
                             var fingerLabels = [
-                                { idx: 8, text: 'ROOT', color: this.labelColors.evaGreen },
-                                { idx: 12, text: 'm3', color: this.labelColors.evaPurple },
+                                { idx: 12, text: 'ROOT', color: this.labelColors.evaGreen },
+                                { idx: 8, text: 'm3', color: this.labelColors.evaPurple },
                                 { idx: 16, text: '5th', color: this.labelColors.evaOrange },
                                 { idx: 20, text: 'm7', color: this.labelColors.evaRed }
                             ];
@@ -1462,8 +1462,8 @@ export var Game = /*#__PURE__*/ function() {
                         var fingerStates = controlData.fingerStates;
                         // Per-finger drum labels at each fingertip
                         var drumFingers = [
-                            { idx: 8, finger: 'index', drum: 'KICK' },
-                            { idx: 12, finger: 'middle', drum: 'SNARE' },
+                            { idx: 8, finger: 'index', drum: 'SNARE' },
+                            { idx: 12, finger: 'middle', drum: 'KICK' },
                             { idx: 16, finger: 'ring', drum: 'HIHAT' },
                             { idx: 20, finger: 'pinky', drum: 'CLAP' }
                         ];

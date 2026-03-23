@@ -140,16 +140,23 @@ export class MusicManager {
         // =====================================================================
         this.drumFingerSynths = {};
 
-        // DRUM INDEX: 808 Kick — deep, punchy, LOUD
-        this.drumFingerSynths.index = new Tone.MembraneSynth({
+        // DRUM INDEX: Light snare-like hit (index is square finger — minimal)
+        this.drumFingerSynths.index = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
+        }).connect(this.limiter);
+        this.drumFingerSynths.index.volume.value = -6;
+
+        // DRUM MIDDLE: 808 Kick — the HEAVY finger, deep + punchy
+        this.drumFingerSynths.middle = new Tone.MembraneSynth({
             pitchDecay: 0.08, octaves: 8,
             oscillator: { type: 'sine' },
             envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.5 }
         }).connect(this.limiter);
-        this.drumFingerSynths.index.volume.value = -2;
+        this.drumFingerSynths.middle.volume.value = -2;
 
-        // DRUM MIDDLE: Noise Riser/Sweep — continuous filter controlled by distance
-        this.drumFingerSynths.middle = new Tone.NoiseSynth({
+        // DRUM MIDDLE also has a continuous noise riser (separate synth)
+        this._drumRiser = new Tone.NoiseSynth({
             noise: { type: 'pink' },
             envelope: { attack: 0.1, decay: 0, sustain: 1, release: 0.3 }
         });
@@ -158,8 +165,8 @@ export class MusicManager {
             filter: { type: 'bandpass', Q: 3 }
         }).connect(this.delay);
         this._riserFilter.start();
-        this.drumFingerSynths.middle.connect(this._riserFilter);
-        this.drumFingerSynths.middle.volume.value = -8;
+        this._drumRiser.connect(this._riserFilter);
+        this._drumRiser.volume.value = -8;
         this._drumMiddleActive = false;
 
         // DRUM RING: Stutter/Glitch — rapid noise bursts
@@ -187,7 +194,7 @@ export class MusicManager {
         this.drumThumbSynth.volume.value = -4;
 
         // Legacy references
-        this.kickSynth = this.drumFingerSynths.index;
+        this.kickSynth = this.drumFingerSynths.middle;
         this.hatSynth = new Tone.NoiseSynth({
             noise: { type: 'white' },
             envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 }
@@ -353,19 +360,21 @@ export class MusicManager {
 
         const rootFreq = Tone.Frequency(rootNote).toFrequency();
 
-        // === THUMB + INDEX: Volume fingers — trigger-only one-shots ===
+        // === INDEX: Minor 3rd trigger only (index is a square/volume finger) ===
+        // Minimal — just a one-shot, no continuous effects
         if (this.fingerSynths.index) {
             if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.index = now;
+                const m3Freq = rootFreq * Math.pow(2, 3/12);
                 this.fingerSynths.index.triggerAttackRelease(
-                    Tone.Frequency(rootFreq).toNote(), '4n', Tone.now(), 0.8
+                    Tone.Frequency(m3Freq).toNote(), '8n', Tone.now(), 0.7
                 );
             }
         }
 
-        // === MIDDLE: FM Screamer ===
+        // === MIDDLE: Root note + FM Screamer ===
         // Distance: 0 = clean subtle tone, 1 = insane FM screech
-        // Continuous: filter cutoff + FM mod index + volume of always-on FM pad
+        // This is the PRIMARY melodic finger — root note trigger + continuous FM chaos
         if (this.fingerSynths.middle) {
             try {
                 this.fingerSynths.middle.modulationIndex.value = 0.5 + Math.pow(d.middle, 1.5) * 50;
@@ -373,9 +382,8 @@ export class MusicManager {
             } catch(e) {}
             if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.middle = now;
-                const zapFreq = rootFreq * Math.pow(2, 3/12);
                 this.fingerSynths.middle.triggerAttackRelease(
-                    Tone.Frequency(zapFreq).toNote(), '8n', Tone.now(), 0.9
+                    Tone.Frequency(rootFreq).toNote(), '4n', Tone.now(), 0.9
                 );
             }
         }
@@ -503,36 +511,43 @@ export class MusicManager {
             }
         }
 
-        // === INDEX: 808 Kick — trigger, distance = pitch sweep depth ===
+        // === INDEX: Snare-like trigger only (index is a square finger — minimal) ===
         if (this.drumFingerSynths.index) {
-            try {
-                this.drumFingerSynths.index.pitchDecay = 0.02 + d.index * 0.15;
-                this.drumFingerSynths.index.octaves = 4 + d.index * 6;
-            } catch(e) {}
             if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.index = now;
-                this.drumFingerSynths.index.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
+                this.drumFingerSynths.index.triggerAttackRelease('E2', '16n', Tone.now(), 0.6);
             }
         }
 
-        // === MIDDLE: Noise Riser — CONTINUOUS: starts/stops based on distance ===
-        // When middle finger is extended, the riser plays continuously
-        // Distance controls the filter sweep position in real-time
+        // === MIDDLE: 808 Kick + Noise Riser — the HEAVY finger ===
+        // Trigger: deep kick hit with distance-controlled pitch sweep
+        // Continuous: noise riser that starts/stops based on distance
+        if (this.drumFingerSynths.middle) {
+            // Kick trigger
+            try {
+                this.drumFingerSynths.middle.pitchDecay = 0.02 + d.middle * 0.15;
+                this.drumFingerSynths.middle.octaves = 4 + d.middle * 6;
+            } catch(e) {}
+            if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
+                cooldowns.middle = now;
+                this.drumFingerSynths.middle.triggerAttackRelease('C1', '8n', Tone.now(), 0.9);
+            }
+        }
+        // Riser continuous (also on middle)
         if (this._riserFilter) {
             this._riserFilter.baseFrequency = 100 + Math.pow(d.middle, 2) * 5000;
             this._riserFilter.octaves = 2 + d.middle * 6;
         }
-        if (this.drumFingerSynths.middle) {
+        if (this._drumRiser) {
             if (d.middle > 0.25 && !this._drumMiddleActive) {
                 this._drumMiddleActive = true;
-                this.drumFingerSynths.middle.triggerAttack(Tone.now(), 0.6);
+                this._drumRiser.triggerAttack(Tone.now(), 0.6);
             } else if (d.middle < 0.15 && this._drumMiddleActive) {
                 this._drumMiddleActive = false;
-                try { this.drumFingerSynths.middle.triggerRelease(Tone.now()); } catch(e) {}
+                try { this._drumRiser.triggerRelease(Tone.now()); } catch(e) {}
             }
-            // Volume scales with distance
             if (this._drumMiddleActive) {
-                this.drumFingerSynths.middle.volume.rampTo(-14 + d.middle * 10, 0.05);
+                this._drumRiser.volume.rampTo(-14 + d.middle * 10, 0.05);
             }
         }
 
@@ -643,9 +658,9 @@ export class MusicManager {
         try { this.pinkyContinuous.triggerRelease(Tone.now()); } catch(e) {}
         this._continuousActive = false;
 
-        // Stop continuous drum middle
+        // Stop continuous drum riser
         this._drumMiddleActive = false;
-        try { this.drumFingerSynths.middle.triggerRelease(Tone.now()); } catch(e) {}
+        try { this._drumRiser.triggerRelease(Tone.now()); } catch(e) {}
 
         if (this.fingerSynths) {
             for (const finger of ['index', 'middle', 'ring', 'pinky']) {

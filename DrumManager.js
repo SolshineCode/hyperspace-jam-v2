@@ -132,8 +132,8 @@ var drumPattern = {
     ]
 };
 var fingerToDrumMap = {
-    'index': 'kick',
-    'middle': 'snare',
+    'index': 'snare',
+    'middle': 'kick',
     'ring': 'hihat',
     'pinky': 'clap'
 };
