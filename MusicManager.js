@@ -182,6 +182,32 @@ export class MusicManager {
         // Beat timers
         this._drumBeatTimers = { kick: 0, hihat: 0, clap: 0 };
 
+        // === DEDICATED TRIGGER SYNTHS (loud, immediate, per-finger) ===
+        // These fire on open/close transitions — separate from the BPM sample loop
+
+        // Kick trigger: punchy membrane, louder than sample
+        this._triggerKick = new Tone.MembraneSynth({
+            pitchDecay: 0.06, octaves: 6,
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
+        }).connect(this.limiter);
+        this._triggerKick.volume.value = 2;
+
+        // Hihat trigger: bright noise burst
+        this._triggerHat = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.03 }
+        }).connect(this.limiter);
+        this._triggerHat.volume.value = -2;
+
+        // Clap trigger: layered noise with bandpass
+        this._clapFilter = new Tone.Filter({ frequency: 1500, type: 'bandpass', Q: 2 }).connect(this.reverb);
+        this._triggerClap = new Tone.NoiseSynth({
+            noise: { type: 'pink' },
+            envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.06 }
+        }).connect(this._clapFilter);
+        this._triggerClap.volume.value = 0;
+
         // Legacy references
         this.kickSynth = new Tone.MembraneSynth({
             pitchDecay: 0.08, octaves: 8,
@@ -563,53 +589,48 @@ export class MusicManager {
         }
 
         // =====================================================================
-        // IMMEDIATE TRIGGERS — distinct sound on every finger open/close
-        // This is what makes wiggling fingers feel responsive
+        // IMMEDIATE TRIGGERS — loud distinct sound on every finger open/close
+        // Synth hits (not just samples) so each finger is unmistakable
         // =====================================================================
-        const OPEN_THRESH = 0.3;   // finger considered "open" above this
-        const CLOSE_THRESH = 0.15; // finger considered "closed" below this
+        const OPEN_THRESH = 0.22;
+        const CLOSE_THRESH = 0.12;
 
-        if (this._drumPlayersLoaded) {
-            // MIDDLE: Kick on open, muted kick on close
-            if (prevExt.middle < OPEN_THRESH && d.middle >= OPEN_THRESH) {
-                try { this.drumPlayers.player('kick').start(Tone.now()); } catch(e) {}
-            } else if (prevExt.middle >= OPEN_THRESH && d.middle < CLOSE_THRESH) {
-                try {
-                    this.drumPlayers.player('kick').start(Tone.now());
-                    this.drumPlayers.player('kick').volume.value = -12;
-                    setTimeout(() => { try { this.drumPlayers.player('kick').volume.value = 0; } catch(e) {} }, 100);
-                } catch(e) {}
-            }
-
-            // RING: Hihat on open, soft tick on close
-            if (prevExt.ring < OPEN_THRESH && d.ring >= OPEN_THRESH) {
-                try { this.drumPlayers.player('hihat').start(Tone.now()); } catch(e) {}
-            } else if (prevExt.ring >= OPEN_THRESH && d.ring < CLOSE_THRESH) {
-                try {
-                    this.drumPlayers.player('hihat').start(Tone.now());
-                    this.drumPlayers.player('hihat').volume.value = -10;
-                    setTimeout(() => { try { this.drumPlayers.player('hihat').volume.value = -2; } catch(e) {} }, 100);
-                } catch(e) {}
-            }
-
-            // PINKY: Clap on open, soft clap on close
-            if (prevExt.pinky < OPEN_THRESH && d.pinky >= OPEN_THRESH) {
-                try { this.drumPlayers.player('clap').start(Tone.now()); } catch(e) {}
-            } else if (prevExt.pinky >= OPEN_THRESH && d.pinky < CLOSE_THRESH) {
-                try {
-                    this.drumPlayers.player('clap').start(Tone.now());
-                    this.drumPlayers.player('clap').volume.value = -10;
-                    setTimeout(() => { try { this.drumPlayers.player('clap').volume.value = 0; } catch(e) {} }, 100);
-                } catch(e) {}
-            }
+        // MIDDLE: Deep boom on open, short thud on close
+        if (prevExt.middle < OPEN_THRESH && d.middle >= OPEN_THRESH) {
+            try {
+                this._triggerKick.triggerAttackRelease('C1', '8n', Tone.now(), 1.0);
+                if (this._drumPlayersLoaded) this.drumPlayers.player('kick').start(Tone.now());
+            } catch(e) {}
+        } else if (prevExt.middle >= OPEN_THRESH && d.middle < CLOSE_THRESH) {
+            try { this._triggerKick.triggerAttackRelease('G1', '32n', Tone.now(), 0.5); } catch(e) {}
         }
 
-        // THUMB: Zap on open
-        if (this.drumThumbSynth) {
-            if (prevExt.thumb < OPEN_THRESH && d.thumb >= OPEN_THRESH) {
-                const zapNote = ['C4','E4','G4','Bb4'][Math.floor(Math.random() * 4)];
-                try { this.drumThumbSynth.triggerAttackRelease(zapNote, '64n', Tone.now(), 0.8); } catch(e) {}
-            }
+        // RING: Bright tick on open, soft click on close
+        if (prevExt.ring < OPEN_THRESH && d.ring >= OPEN_THRESH) {
+            try {
+                this._triggerHat.triggerAttackRelease('16n', Tone.now(), 1.0);
+                if (this._drumPlayersLoaded) this.drumPlayers.player('hihat').start(Tone.now());
+            } catch(e) {}
+        } else if (prevExt.ring >= OPEN_THRESH && d.ring < CLOSE_THRESH) {
+            try { this._triggerHat.triggerAttackRelease('64n', Tone.now(), 0.4); } catch(e) {}
+        }
+
+        // PINKY: Sharp clap on open, soft snap on close
+        if (prevExt.pinky < OPEN_THRESH && d.pinky >= OPEN_THRESH) {
+            try {
+                this._triggerClap.triggerAttackRelease('8n', Tone.now(), 1.0);
+                if (this._drumPlayersLoaded) this.drumPlayers.player('clap').start(Tone.now());
+            } catch(e) {}
+        } else if (prevExt.pinky >= OPEN_THRESH && d.pinky < CLOSE_THRESH) {
+            try { this._triggerClap.triggerAttackRelease('32n', Tone.now(), 0.4); } catch(e) {}
+        }
+
+        // THUMB: Zap on open, reverse zap on close
+        if (prevExt.thumb < OPEN_THRESH && d.thumb >= OPEN_THRESH) {
+            const zapNote = ['C4','Eb4','G4','Bb4'][Math.floor(Math.random() * 4)];
+            try { this.drumThumbSynth.triggerAttackRelease(zapNote, '32n', Tone.now(), 0.9); } catch(e) {}
+        } else if (prevExt.thumb >= OPEN_THRESH && d.thumb < CLOSE_THRESH) {
+            try { this.drumThumbSynth.triggerAttackRelease('C3', '64n', Tone.now(), 0.5); } catch(e) {}
         }
 
         // =====================================================================
@@ -680,47 +701,35 @@ export class MusicManager {
 
     // Pre-allocate touch synths (called once during start)
     _initTouchSynths() {
-        // Pre-allocated synths — NO dynamic allocation, NO memory leak
+        // Pre-allocated melodic pluck synths — each plays a different pentatonic note
+        // Routed through delay for lush echo cascade (Goa pluck style)
         this._touchSynths = {};
+        const touchDest = this._pluckDelay || this.delay || this.limiter;
 
-        // Thumb: Water drip
-        this._touchSynths.thumb = new Tone.Synth({
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
-        }).connect(this.reverb || this.limiter);
-        this._touchSynths.thumb.volume.value = -6;
+        // All 5 fingers get the same pluck voice but play different notes
+        const makePluck = (vol) => {
+            const s = new Tone.Synth({
+                oscillator: { type: 'triangle' },
+                envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.12 }
+            }).connect(touchDest);
+            s.volume.value = vol;
+            return s;
+        };
 
-        // Index: Bubble pop
-        this._touchSynths.index = new Tone.Synth({
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
-        }).connect(this._shimmerReverb || this.reverb || this.limiter);
-        this._touchSynths.index.volume.value = -4;
+        this._touchSynths.thumb = makePluck(-4);
+        this._touchSynths.index = makePluck(-4);
+        this._touchSynths.middle = makePluck(-2);
+        this._touchSynths.ring = makePluck(-2);
+        this._touchSynths.pinky = makePluck(-4);
 
-        // Middle: Sparkle
-        this._touchSynths.middle = new Tone.MetalSynth({
-            harmonicity: 8, modulationIndex: 16,
-            resonance: 5000, octaves: 0.5,
-            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }
-        }).connect(this._shimmerReverb || this.reverb || this.limiter);
-        this._touchSynths.middle.volume.value = -8;
-
-        // Ring: Glass chime
-        this._touchSynths.ring = new Tone.Synth({
-            oscillator: { type: 'triangle' },
-            envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
-        }).connect(this._shimmerReverb || this.reverb || this.limiter);
-        this._touchSynths.ring.volume.value = -4;
-
-        // Pinky: Zap spark
-        this._touchSynths.pinky = new Tone.FMSynth({
-            harmonicity: 12, modulationIndex: 30,
-            oscillator: { type: 'square' },
-            envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
-            modulation: { type: 'sawtooth' },
-            modulationEnvelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 }
-        }).connect(this.delay || this.limiter);
-        this._touchSynths.pinky.volume.value = -6;
+        // Pentatonic note per finger (C minor pentatonic, different octaves)
+        this._touchNotes = {
+            thumb: ['C5', 'Eb5', 'G5'],
+            index: ['Bb4', 'C5', 'Eb5'],
+            middle: ['G4', 'Bb4', 'C5'],
+            ring: ['Eb5', 'G5', 'Bb5'],
+            pinky: ['C6', 'Eb6', 'G6']
+        };
 
         this._touchCooldown = 0;
     }
@@ -736,24 +745,10 @@ export class MusicManager {
         const primary = fingerPriority.indexOf(finger1) < fingerPriority.indexOf(finger2) ? finger1 : finger2;
 
         try {
-            switch (primary) {
-                case 'thumb':
-                    this._touchSynths.thumb.triggerAttackRelease('G5', '32n', Tone.now(), 0.7);
-                    break;
-                case 'index':
-                    this._touchSynths.index.triggerAttackRelease('C5', '64n', Tone.now(), 0.8);
-                    break;
-                case 'middle':
-                    this._touchSynths.middle.triggerAttackRelease('32n', Tone.now(), 0.6);
-                    break;
-                case 'ring': {
-                    const chimeNote = ['E6', 'G6', 'B6', 'D7'][Math.floor(Math.random() * 4)];
-                    this._touchSynths.ring.triggerAttackRelease(chimeNote, '16n', Tone.now(), 0.7);
-                    break;
-                }
-                case 'pinky':
-                    this._touchSynths.pinky.triggerAttackRelease('A5', '64n', Tone.now(), 0.9);
-                    break;
+            const notes = this._touchNotes[primary];
+            if (notes && this._touchSynths[primary]) {
+                const note = notes[Math.floor(Math.random() * notes.length)];
+                this._touchSynths[primary].triggerAttackRelease(note, '16n', Tone.now(), 0.8);
             }
         } catch(e) {}
     }
