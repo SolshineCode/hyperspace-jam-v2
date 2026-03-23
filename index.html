@@ -32,9 +32,15 @@
     <body style="width: 100%; height: 100%; overflow: hidden; margin: 0;">
         <div id="renderDiv" style="width: 100%; height: 100%; margin: 0;">
 
-            <div id="legend-toggle" onclick="document.getElementById('controls-hint').classList.toggle('hidden')">
-                <span class="toggle-icon">?</span>
-                <span class="toggle-title">Hyperspace Jam</span>
+            <div id="corner-controls">
+                <div id="multiplayer-toggle" onclick="window._toggleMultiplayer && window._toggleMultiplayer()">
+                    <span class="mp-label">MULTI</span>
+                    <span id="mp-status" class="mp-off">OFF</span>
+                </div>
+                <div id="legend-toggle" onclick="document.getElementById('controls-hint').classList.toggle('hidden')">
+                    <span class="toggle-icon">?</span>
+                    <span class="toggle-title">Hyperspace Jam</span>
+                </div>
             </div>
 
             <div id="controls-hint" class="hidden">

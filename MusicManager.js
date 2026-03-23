@@ -225,31 +225,43 @@ export class MusicManager {
 
     // --- Pad Management ---
 
-    startArpeggio(handId, rootNote) {
+    startArpeggio(handId, rootNote, playerIndex) {
         if (!this.isStarted || this.padSynths.has(handId) || this._panicMuted) return;
 
-        const preset = this.padPresets[this.currentSynthIndex];
-        const pad = new Tone.Synth({
-            oscillator: { ...preset.oscillator },
-            envelope: { ...preset.envelope }
-        });
-        pad.connect(this.filter);
-        pad.volume.value = -10;
+        // Per-player preset: player 2 uses a different timbre
+        const pIdx = playerIndex || 0;
+        const presetIdx = (this.currentSynthIndex + pIdx * 2) % this.padPresets.length;
+        const preset = this.padPresets[presetIdx];
 
-        const harmonyPad = new Tone.Synth({
-            oscillator: { ...preset.oscillator },
-            envelope: { ...preset.envelope }
-        });
-        harmonyPad.connect(this.filter);
-        harmonyPad.volume.value = -16;
+        // Per-player key offset: player 2 transposed up a perfect 4th (5 semitones)
+        const keyOffset = (pIdx === 0) ? 1 : Math.pow(2, 5/12); // P4 for player 2
 
-        const freq = Tone.Frequency(rootNote).toFrequency();
-        pad.triggerAttack(freq, Tone.now());
-        harmonyPad.triggerAttack(freq * 1.498, Tone.now());
+        // Auto-chord: root + minor 3rd + perfect 5th
+        const makePad = (volDb) => {
+            const s = new Tone.Synth({
+                oscillator: { ...preset.oscillator },
+                envelope: { ...preset.envelope }
+            });
+            s.connect(this.filter);
+            s.volume.value = volDb;
+            return s;
+        };
+
+        const rootPad = makePad(-10);
+        const thirdPad = makePad(-14);  // minor 3rd, slightly quieter
+        const fifthPad = makePad(-13);  // perfect 5th
+
+        const freq = Tone.Frequency(rootNote).toFrequency() * keyOffset;
+        rootPad.triggerAttack(freq, Tone.now());
+        thirdPad.triggerAttack(freq * Math.pow(2, 3/12), Tone.now());  // minor 3rd
+        fifthPad.triggerAttack(freq * Math.pow(2, 7/12), Tone.now());  // perfect 5th
 
         if (this.subBass) this.subBass.triggerAttack(freq / 2, Tone.now());
 
-        this.padSynths.set(handId, { synth: pad, harmonySynth: harmonyPad, currentRoot: rootNote });
+        this.padSynths.set(handId, {
+            synth: rootPad, thirdSynth: thirdPad, fifthSynth: fifthPad,
+            currentRoot: rootNote, keyOffset, playerIndex: pIdx
+        });
         this.handVolumes.set(handId, 0.2);
         this.fingerCooldowns.set(handId, { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 });
 
@@ -268,13 +280,15 @@ export class MusicManager {
         const padData = this.padSynths.get(handId);
         if (!padData || padData.currentRoot === newRootNote) return;
 
-        const freq = Tone.Frequency(newRootNote).toFrequency();
+        const keyOffset = padData.keyOffset || 1;
+        const freq = Tone.Frequency(newRootNote).toFrequency() * keyOffset;
         padData.synth.frequency.rampTo(freq, 0.15);
-        if (padData.harmonySynth) padData.harmonySynth.frequency.rampTo(freq * 1.498, 0.15);
+        if (padData.thirdSynth) padData.thirdSynth.frequency.rampTo(freq * Math.pow(2, 3/12), 0.15);
+        if (padData.fifthSynth) padData.fifthSynth.frequency.rampTo(freq * Math.pow(2, 7/12), 0.15);
         if (this.subBass) this.subBass.frequency.rampTo(freq / 2, 0.2);
 
         try {
-            if (this.middleContinuous) this.middleContinuous.frequency.rampTo(freq * 1.498, 0.2);
+            if (this.middleContinuous) this.middleContinuous.frequency.rampTo(freq * Math.pow(2, 3/12), 0.2);
             if (this.ringContinuous) this.ringContinuous.frequency.rampTo(freq * 2, 0.2);
             if (this.pinkyContinuous) this.pinkyContinuous.frequency.rampTo(freq / 2, 0.2);
         } catch(e) {}
@@ -290,14 +304,16 @@ export class MusicManager {
         this.handVolumes.set(handId, clamped);
         const db = -30 + clamped * 26;
         padData.synth.volume.rampTo(db, 0.1);
-        if (padData.harmonySynth) padData.harmonySynth.volume.rampTo(db - 6, 0.1);
+        if (padData.thirdSynth) padData.thirdSynth.volume.rampTo(db - 4, 0.1);
+        if (padData.fifthSynth) padData.fifthSynth.volume.rampTo(db - 3, 0.1);
     }
 
     stopArpeggio(handId) {
         const padData = this.padSynths.get(handId);
         if (padData) {
             padData.synth.triggerRelease(Tone.now());
-            if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
+            if (padData.thirdSynth) padData.thirdSynth.triggerRelease(Tone.now());
+            if (padData.fifthSynth) padData.fifthSynth.triggerRelease(Tone.now());
             if (this.padSynths.size <= 1 && this.subBass) {
                 this.subBass.triggerRelease(Tone.now());
             }
@@ -310,7 +326,7 @@ export class MusicManager {
             }
 
             if (!this._pendingDisposals) this._pendingDisposals = new Set();
-            const synths = [padData.synth, padData.harmonySynth].filter(Boolean);
+            const synths = [padData.synth, padData.thirdSynth, padData.fifthSynth].filter(Boolean);
 
             // Force-dispose oldest if too many pending (prevents memory leak on hand flicker)
             if (this._pendingDisposals.size > 8) {
@@ -446,7 +462,8 @@ export class MusicManager {
         // Pad detune: tilted = detuned/dissonant, up to ±100 cents
         this.padSynths.forEach(padData => {
             padData.synth.detune.rampTo(wristAngle * 100, 0.1);
-            if (padData.harmonySynth) padData.harmonySynth.detune.rampTo(-wristAngle * 80, 0.1);
+            if (padData.thirdSynth) padData.thirdSynth.detune.rampTo(-wristAngle * 60, 0.1);
+            if (padData.fifthSynth) padData.fifthSynth.detune.rampTo(wristAngle * 40, 0.1);
         });
 
         // Delay time shift: tilted right = longer delay, left = shorter
@@ -697,13 +714,12 @@ export class MusicManager {
         this.padSynths.forEach((padData, handId) => {
             activePads.push({ handId, root: padData.currentRoot });
             padData.synth.triggerRelease(Tone.now());
-            if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
-            try { padData.synth.disconnect(); } catch(e) {}
-            try { if (padData.harmonySynth) padData.harmonySynth.disconnect(); } catch(e) {}
-            setTimeout(() => {
-                try { padData.synth.dispose(); } catch(e) {}
-                try { if (padData.harmonySynth) padData.harmonySynth.dispose(); } catch(e) {}
-            }, 1000);
+            if (padData.thirdSynth) padData.thirdSynth.triggerRelease(Tone.now());
+            if (padData.fifthSynth) padData.fifthSynth.triggerRelease(Tone.now());
+            for (const s of [padData.synth, padData.thirdSynth, padData.fifthSynth].filter(Boolean)) {
+                try { s.disconnect(); } catch(e) {}
+                setTimeout(() => { try { s.dispose(); } catch(e) {} }, 1000);
+            }
         });
         this.padSynths.clear();
 

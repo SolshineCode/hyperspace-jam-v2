@@ -471,7 +471,9 @@ export var Game = /*#__PURE__*/ function() {
                 directionalLight.position.set(0, 0, 100); // Pointing from behind camera
                 this.scene.add(directionalLight);
                 // Setup hand visualization (palm circles removed, lines will be added later)
-                for(var i = 0; i < 2; i++){
+                this._multiplayerEnabled = false;
+                this._maxHands = 2;
+                for(var i = 0; i < 4; i++){
                     var lineGroup = new THREE.Group();
                     lineGroup.visible = false;
                     this.scene.add(lineGroup);
@@ -687,7 +689,7 @@ export var Game = /*#__PURE__*/ function() {
                                             modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
                                             delegate: 'GPU'
                                         },
-                                        numHands: 2,
+                                        numHands: 4,
                                         runningMode: 'VIDEO'
                                     })
                                 ];
@@ -781,7 +783,14 @@ export var Game = /*#__PURE__*/ function() {
                                 var handX = (1 - normX_visible) * canvasWidth - canvasWidth / 2;
                                 var handY = (1 - normY_visible) * canvasHeight - canvasHeight / 2;
                                 hand.anchorPos.set(handX, handY, 1);
-                                if (i === 0) {
+                                // Multi-player routing: hands 0,1 = player 0; hands 2,3 = player 1
+                                var maxHandIdx = _this1._multiplayerEnabled ? 4 : 2;
+                                var playerIndex = Math.floor(i / 2);
+                                var isSynthHand = (i % 2 === 0);
+                                var isDrumHand = (i % 2 === 1);
+                                if (i >= maxHandIdx) {
+                                    // Hand not active in current mode
+                                } else if (isSynthHand) {
                                     // --- Music & Gesture Control ---
                                     var isFistNow = _this1._isFist(smoothedLandmarks);
                                     if (isFistNow && !hand.isFist) {
@@ -826,7 +835,7 @@ export var Game = /*#__PURE__*/ function() {
                                         // Start/Restart arpeggio if the hand just appeared OR if it just opened from a fist.
                                         var arpeggioIsActive = _this1.musicManager.activePatterns.has(i);
                                         if (!wasVisible || !arpeggioIsActive) {
-                                            _this1.musicManager.startArpeggio(i, note);
+                                            _this1.musicManager.startArpeggio(i, note, playerIndex);
                                         } else {
                                             _this1.musicManager.updateArpeggio(i, note);
                                         }
@@ -952,9 +961,9 @@ export var Game = /*#__PURE__*/ function() {
                                         // If it is a fist, make sure the arpeggio is stopped
                                         _this1.musicManager.stopArpeggio(i);
                                     }
-                                } else if (i === 1) {
+                                } else if (isDrumHand) {
                                     var fingerStates = _this1._getFingerStates(smoothedLandmarks);
-                                    drumManager.updateActiveDrums(fingerStates);
+                                    if (playerIndex === 0) drumManager.updateActiveDrums(fingerStates);
                                     _this1._updateHandLines(i, smoothedLandmarks, videoParams, canvasWidth, canvasHeight, {
                                         fingerStates: fingerStates
                                     });
@@ -1031,8 +1040,8 @@ export var Game = /*#__PURE__*/ function() {
                                         if (_this1.musicManager.pluckSynth) {
                                             try { _this1.musicManager.pluckSynth.releaseAll(Tone.now()); } catch(e) {}
                                         }
-                                    } else if (i === 1) {
-                                        drumManager.updateActiveDrums({});
+                                    } else if (i % 2 === 1) {
+                                        if (Math.floor(i / 2) === 0) drumManager.updateActiveDrums({});
                                     }
                                 }
                                 hand.landmarks = null;
@@ -1664,6 +1673,17 @@ export var Game = /*#__PURE__*/ function() {
                         _this._restartGame();
                     }
                 });
+                // Multiplayer toggle
+                window._toggleMultiplayer = function() {
+                    _this._multiplayerEnabled = !_this._multiplayerEnabled;
+                    var statusEl = document.getElementById('mp-status');
+                    if (statusEl) {
+                        statusEl.textContent = _this._multiplayerEnabled ? 'ON' : 'OFF';
+                        statusEl.className = _this._multiplayerEnabled ? 'mp-on' : 'mp-off';
+                    }
+                    console.log('Multiplayer: ' + (_this._multiplayerEnabled ? 'ON (4 hands)' : 'OFF (2 hands)'));
+                };
+
                 console.log('Game event listeners set up.');
             }
         }
