@@ -27,12 +27,12 @@ export class MusicManager {
         this.PERC_COOLDOWN_MS = 150;
         this.HAND_VELOCITY_THRESHOLD = 0.15;
 
-        // Finger -> semitone interval mapping
+        // Finger -> semitone interval mapping (harmonically rich chord voicing)
         this.fingerIntervals = {
             index: 0,    // root
             middle: 3,   // minor third
-            ring: 7,     // fifth
-            pinky: 12    // octave
+            ring: 7,     // perfect fifth
+            pinky: 10    // minor seventh (creates lush minor 7th chord)
         };
 
         // C Minor Pentatonic scale for root note mapping
@@ -92,28 +92,28 @@ export class MusicManager {
         this.analyser = new Tone.Analyser('waveform', 1024);
         this.reverb.connect(this.analyser);
 
-        // --- Layer 2: Pluck Synth ---
+        // --- Layer 2: Pluck Synth (warm, harmonic, overlapping notes) ---
         this.pluckSynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 8,
-            harmonicity: 3,
-            modulationIndex: 10,
+            maxPolyphony: 12,
+            harmonicity: 2,          // octave relationship = consonant
+            modulationIndex: 6,      // gentler FM = warmer tone
             oscillator: { type: 'sine' },
             envelope: {
-                attack: 0.001,
-                decay: 0.25,
-                sustain: 0.01,
-                release: 0.8
+                attack: 0.003,
+                decay: 0.35,
+                sustain: 0.08,
+                release: 1.5          // long release = notes blend into each other
             },
-            modulation: { type: 'triangle' },
+            modulation: { type: 'sine' },  // sine mod = smoother harmonics
             modulationEnvelope: {
-                attack: 0.001,
-                decay: 0.1,
-                sustain: 0.05,
-                release: 0.5
+                attack: 0.005,
+                decay: 0.15,
+                sustain: 0.1,
+                release: 0.8
             }
         });
         this.pluckSynth.connect(this.delay);
-        this.pluckSynth.volume.value = -4;
+        this.pluckSynth.volume.value = -6;
 
         // --- Layer 3: Percussion ---
         // Kick / thump
@@ -152,6 +152,8 @@ export class MusicManager {
         if (!this.isStarted || this.padSynths.has(handId)) return;
 
         const preset = this.padPresets[this.currentSynthIndex];
+
+        // Root pad voice
         const pad = new Tone.Synth({
             oscillator: { ...preset.oscillator },
             envelope: { ...preset.envelope }
@@ -159,11 +161,20 @@ export class MusicManager {
         pad.connect(this.chorus);
         pad.volume.value = -12;
 
-        // Start sustained tone
+        // Harmony voice — a perfect fifth above, quieter, for natural richness
+        const harmonyPad = new Tone.Synth({
+            oscillator: { ...preset.oscillator },
+            envelope: { ...preset.envelope }
+        });
+        harmonyPad.connect(this.chorus);
+        harmonyPad.volume.value = -18; // subtle, sits behind the root
+
+        // Start sustained tones
         const freq = Tone.Frequency(rootNote).toFrequency();
         pad.triggerAttack(freq, Tone.now());
+        harmonyPad.triggerAttack(freq * 1.498, Tone.now()); // ~perfect fifth (slightly detuned for shimmer)
 
-        this.padSynths.set(handId, { synth: pad, currentRoot: rootNote });
+        this.padSynths.set(handId, { synth: pad, harmonySynth: harmonyPad, currentRoot: rootNote });
         this.handVolumes.set(handId, 0.2);
         this.fingerCooldowns.set(handId, { index: 0, middle: 0, ring: 0, pinky: 0 });
     }
@@ -172,9 +183,12 @@ export class MusicManager {
         const padData = this.padSynths.get(handId);
         if (!padData || padData.currentRoot === newRootNote) return;
 
-        // Smooth portamento glide
+        // Smooth portamento glide — both voices
         const freq = Tone.Frequency(newRootNote).toFrequency();
         padData.synth.frequency.rampTo(freq, 0.15);
+        if (padData.harmonySynth) {
+            padData.harmonySynth.frequency.rampTo(freq * 1.498, 0.15);
+        }
         padData.currentRoot = newRootNote;
     }
 
@@ -184,24 +198,29 @@ export class MusicManager {
 
         const clamped = Math.max(0, Math.min(1, velocity));
         this.handVolumes.set(handId, clamped);
-        // Map 0-1 to -30dB to -4dB range
         const db = -30 + clamped * 26;
         padData.synth.volume.rampTo(db, 0.1);
+        if (padData.harmonySynth) {
+            padData.harmonySynth.volume.rampTo(db - 6, 0.1); // harmony stays quieter
+        }
     }
 
     stopArpeggio(handId) {
         const padData = this.padSynths.get(handId);
         if (padData) {
             padData.synth.triggerRelease(Tone.now());
-            // Track pending disposal to prevent accumulation
+            if (padData.harmonySynth) padData.harmonySynth.triggerRelease(Tone.now());
+
             if (!this._pendingDisposals) this._pendingDisposals = new Set();
-            const synth = padData.synth;
-            if (!this._pendingDisposals.has(synth)) {
-                this._pendingDisposals.add(synth);
-                setTimeout(() => {
-                    try { synth.dispose(); } catch(e) { /* already disposed */ }
-                    this._pendingDisposals.delete(synth);
-                }, 2000);
+            const synths = [padData.synth, padData.harmonySynth].filter(Boolean);
+            for (const synth of synths) {
+                if (!this._pendingDisposals.has(synth)) {
+                    this._pendingDisposals.add(synth);
+                    setTimeout(() => {
+                        try { synth.dispose(); } catch(e) { /* already disposed */ }
+                        this._pendingDisposals.delete(synth);
+                    }, 2000);
+                }
             }
             this.padSynths.delete(handId);
             this.handVolumes.delete(handId);
