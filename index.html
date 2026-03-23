@@ -31,13 +31,25 @@
     </head>
     <body style="width: 100%; height: 100%; overflow: hidden; margin: 0;">
         <div id="renderDiv" style="width: 100%; height: 100%; margin: 0;">
-            <span id="info-text">✋ WIGGLE FINGERS = PLAY NOTES &nbsp;|&nbsp; ✊ FIST = CHANGE SOUND &nbsp;|&nbsp; 👋 MOVE FAST = DRUMS</span>
+
+            <div id="controls-hint">
+                <div class="hint-title">HYPERSPACE JAM</div>
+                <div class="hint-grid">
+                    <span class="hint-icon">✋</span><span class="hint-desc">Hand height → pitch</span>
+                    <span class="hint-icon">👌</span><span class="hint-desc">Pinch → volume</span>
+                    <span class="hint-icon">🤟</span><span class="hint-desc">Wiggle fingers → play notes</span>
+                    <span class="hint-icon">✊</span><span class="hint-desc">Fist → change sound</span>
+                    <span class="hint-icon">👋</span><span class="hint-desc">Fast move → percussion</span>
+                    <span class="hint-icon">🤚</span><span class="hint-desc">2nd hand → drums</span>
+                </div>
+                <div class="hint-fade">tap anywhere to dismiss</div>
+            </div>
+
         </div>
         <div id="attract-mode">
             <div id="attract-text">STEP UP TO JAM</div>
             <div id="attract-sub">wave your hands to make music</div>
         </div>
-        <button id="scale-toggle">PENTATONIC</button>
         <script type="module" src="main.js"></script>
     </body>
 </html>
