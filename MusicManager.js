@@ -111,28 +111,48 @@ export class MusicManager {
         this.analyser = new Tone.Analyser('waveform', 1024);
         this.reverb.connect(this.analyser);
 
-        // === LAYER 2: Psychedelic Lead Pluck ===
-        this.pluckSynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 8,
-            harmonicity: 2,
-            modulationIndex: 3,
+        // === LAYER 2: Per-Finger Synths — each finger has a UNIQUE sound ===
+
+        // INDEX = sharp crystalline bell (high, bright, immediate)
+        this.fingerSynths = {};
+        this.fingerSynths.index = new Tone.FMSynth({
+            harmonicity: 5,
+            modulationIndex: 8,
             oscillator: { type: 'sine' },
-            envelope: {
-                attack: 0.005,
-                decay: 0.3,
-                sustain: 0.02,
-                release: 0.6
-            },
-            modulation: { type: 'sine' },
-            modulationEnvelope: {
-                attack: 0.005,
-                decay: 0.2,
-                sustain: 0.08,
-                release: 1.0
-            }
-        });
-        this.pluckSynth.connect(this.delay);
-        this.pluckSynth.volume.value = -2; // loud and punchy — clearly distinct from pad
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.4 },
+            modulation: { type: 'square' },
+            modulationEnvelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.2 }
+        }).connect(this.delay);
+        this.fingerSynths.index.volume.value = -2;
+
+        // MIDDLE = warm pluck (mellow, rounder, like a harp)
+        this.fingerSynths.middle = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.01, decay: 0.4, sustain: 0.05, release: 0.8 }
+        }).connect(this.delay);
+        this.fingerSynths.middle.volume.value = 0;
+
+        // RING = metallic shimmer (bell-like, long tail)
+        this.fingerSynths.ring = new Tone.MetalSynth({
+            harmonicity: 12,
+            modulationIndex: 20,
+            resonance: 2000,
+            octaves: 1,
+            envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.3 }
+        }).connect(this.delay);
+        this.fingerSynths.ring.volume.value = -6;
+
+        // PINKY = deep bass thud (sub, punchy, feel-it-in-your-chest)
+        this.fingerSynths.pinky = new Tone.MembraneSynth({
+            pitchDecay: 0.04,
+            octaves: 4,
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }
+        }).connect(this.limiter);  // direct to limiter — sub bass shouldn't go through delay
+        this.fingerSynths.pinky.volume.value = -2;
+
+        // Keep pluckSynth reference for backward compat (panic uses releaseAll)
+        this.pluckSynth = { releaseAll: () => {} };
 
         // === LAYER 3: Sub-Bass (always-on low foundation) ===
         this.subBass = new Tone.Synth({
@@ -324,8 +344,16 @@ export class MusicManager {
                 const noteFreq = rootFreq * Math.pow(2, semitones / 12);
                 const noteName = Tone.Frequency(noteFreq).toNote();
 
-                // Always loud and clear
-                this.pluckSynth.triggerAttackRelease(noteName, '4n', Tone.now(), 0.7);
+                // Trigger the finger's unique synth
+                const synth = this.fingerSynths[finger];
+                if (synth) {
+                    if (finger === 'ring') {
+                        // MetalSynth uses frequency number, not note name
+                        synth.triggerAttackRelease(noteFreq, '4n', Tone.now(), 0.8);
+                    } else {
+                        synth.triggerAttackRelease(noteName, '4n', Tone.now(), 0.8);
+                    }
+                }
             }
 
             prevExt[finger] = ext;
@@ -462,9 +490,11 @@ export class MusicManager {
             try { this.subBass.triggerRelease(Tone.now()); } catch(e) {}
         }
 
-        // Release all pluck notes
-        if (this.pluckSynth) {
-            try { this.pluckSynth.releaseAll(Tone.now()); } catch(e) {}
+        // Silence all finger synths
+        if (this.fingerSynths) {
+            for (const finger of ['index', 'middle', 'ring', 'pinky']) {
+                try { this.fingerSynths[finger].triggerRelease(Tone.now()); } catch(e) {}
+            }
         }
 
         // Kill the wobble LFO temporarily
