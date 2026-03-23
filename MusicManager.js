@@ -294,24 +294,41 @@ export class MusicManager {
         if (!cooldowns) return;
 
         // --- Layer 2: Pluck notes on finger extension ---
+        // Track continuous extension values (not just booleans)
+        if (!this._prevExtensions) this._prevExtensions = {};
+        if (!this._prevExtensions[handId]) this._prevExtensions[handId] = { index: 0, middle: 0, ring: 0, pinky: 0 };
+        const prevExt = this._prevExtensions[handId];
+
+        // Get raw extension values from gestureData
+        const extValues = gestureData.fingerExtensions || {
+            index: fingerStates.index ? 0.8 : 0.1,
+            middle: fingerStates.middle ? 0.8 : 0.1,
+            ring: fingerStates.ring ? 0.8 : 0.1,
+            pinky: fingerStates.pinky ? 0.8 : 0.1
+        };
+
         for (const finger of ['index', 'middle', 'ring', 'pinky']) {
-            const justExtended = fingerStates[finger] && !prevFingerStates[finger];
+            const ext = extValues[finger];
+            const prev = prevExt[finger];
             const offCooldown = (now - cooldowns[finger]) > this.FINGER_COOLDOWN_MS;
 
-            if (justExtended && offCooldown) {
+            // Trigger when finger crosses UP through threshold (0.2 → 0.5+)
+            // OR when it was curled below 0.15 and is now above 0.35
+            const justCrossedUp = prev < 0.25 && ext > 0.35;
+
+            if (justCrossedUp && offCooldown) {
                 cooldowns[finger] = now;
 
-                // Calculate note: root + interval for this finger
                 const rootFreq = Tone.Frequency(rootNote).toFrequency();
                 const semitones = this.fingerIntervals[finger];
                 const noteFreq = rootFreq * Math.pow(2, semitones / 12);
                 const noteName = Tone.Frequency(noteFreq).toNote();
 
-                // Loud, punchy velocity — always clearly audible
-                const vel = Math.max(0.4, Math.min(0.9, (fingerVelocities[finger] || 0.5) + 0.3));
-
-                this.pluckSynth.triggerAttackRelease(noteName, '4n', Tone.now(), vel);
+                // Always loud and clear
+                this.pluckSynth.triggerAttackRelease(noteName, '4n', Tone.now(), 0.7);
             }
+
+            prevExt[finger] = ext;
         }
 
         // --- Layer 3: Percussive hits on sharp hand movement ---

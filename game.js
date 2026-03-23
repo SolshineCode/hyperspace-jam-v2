@@ -878,6 +878,12 @@ export var Game = /*#__PURE__*/ function() {
                                         _this1.musicManager.updateGesture(i, {
                                             fingerStates: fingerStates,
                                             prevFingerStates: prevFS,
+                                            fingerExtensions: {
+                                                index: indexExt,
+                                                middle: middleExt,
+                                                ring: ringExt,
+                                                pinky: pinkyExt
+                                            },
                                             fingerVelocities: {
                                                 index: Math.abs(indexExt - (prevFS.index ? 1 : 0)),
                                                 middle: Math.abs(middleExt - (prevFS.middle ? 1 : 0)),
