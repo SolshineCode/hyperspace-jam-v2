@@ -853,6 +853,29 @@ export var Game = /*#__PURE__*/ function() {
                                             // Normalize: 0 = touching palm, 1 = fully extended (~ 2x palm size)
                                             fingerDistances[fname] = Math.max(0, Math.min(1, fdist / (palmDist * 2)));
                                         }
+                                        // --- Finger-touch detection: play unique sound when fingertips collide ---
+                                        var touchThreshold = palmDist * 0.35; // fingers within ~35% of palm size = touching
+                                        var fNames = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+                                        if (!_this1._fingerTouchState) _this1._fingerTouchState = {};
+                                        for (var fi = 0; fi < fNames.length; fi++) {
+                                            for (var fj = fi + 1; fj < fNames.length; fj++) {
+                                                var fa = fingerTips[fNames[fi]];
+                                                var fb = fingerTips[fNames[fj]];
+                                                var tdx = fa.x - fb.x;
+                                                var tdy = fa.y - fb.y;
+                                                var tdist = Math.sqrt(tdx * tdx + tdy * tdy);
+                                                var pairKey = fNames[fi] + '-' + fNames[fj];
+                                                var wasTouching = _this1._fingerTouchState[pairKey] || false;
+                                                var isTouching = tdist < touchThreshold;
+                                                if (isTouching && !wasTouching) {
+                                                    // Fingers just came together — trigger touch sound
+                                                    if (_this1.musicManager.triggerFingerTouch) {
+                                                        _this1.musicManager.triggerFingerTouch(fNames[fi], fNames[fj]);
+                                                    }
+                                                }
+                                                _this1._fingerTouchState[pairKey] = isTouching;
+                                            }
+                                        }
                                         // Also keep legacy extension values for compatibility
                                         var palmSize = palmDist;
                                         var middleTip = smoothedLandmarks[12];
@@ -953,6 +976,28 @@ export var Game = /*#__PURE__*/ function() {
                                         var dfdy = dtip.y - drumPalmCenter.y;
                                         var dfdist = Math.sqrt(dfdx * dfdx + dfdy * dfdy);
                                         drumFingerDistances[dfname] = Math.max(0, Math.min(1, dfdist / (drumPalmDist * 2)));
+                                    }
+                                    // Drum hand finger-touch detection
+                                    var drumTouchThreshold = drumPalmDist * 0.35;
+                                    var dFNames = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+                                    if (!_this1._drumFingerTouchState) _this1._drumFingerTouchState = {};
+                                    for (var dfi = 0; dfi < dFNames.length; dfi++) {
+                                        for (var dfj = dfi + 1; dfj < dFNames.length; dfj++) {
+                                            var dfa = drumFingerTips[dFNames[dfi]];
+                                            var dfb = drumFingerTips[dFNames[dfj]];
+                                            var dtdx = dfa.x - dfb.x;
+                                            var dtdy = dfa.y - dfb.y;
+                                            var dtdist = Math.sqrt(dtdx * dtdx + dtdy * dtdy);
+                                            var dpairKey = 'drum-' + dFNames[dfi] + '-' + dFNames[dfj];
+                                            var dwasTouching = _this1._drumFingerTouchState[dpairKey] || false;
+                                            var disTouching = dtdist < drumTouchThreshold;
+                                            if (disTouching && !dwasTouching) {
+                                                if (_this1.musicManager.triggerFingerTouch) {
+                                                    _this1.musicManager.triggerFingerTouch(dFNames[dfi], dFNames[dfj]);
+                                                }
+                                            }
+                                            _this1._drumFingerTouchState[dpairKey] = disTouching;
+                                        }
                                     }
                                     // Drum hand wrist angle
                                     var drumWristToMcp_dx = drumPalmCenter.x - drumWrist.x;
@@ -1454,7 +1499,6 @@ export var Game = /*#__PURE__*/ function() {
                             // Finger labels at each fingertip
                             var fingerLabels = [
                                 { idx: 12, text: 'ROOT', color: this.labelColors.evaGreen },
-                                { idx: 8, text: 'm3', color: this.labelColors.evaPurple },
                                 { idx: 16, text: '5th', color: this.labelColors.evaOrange },
                                 { idx: 20, text: 'm7', color: this.labelColors.evaRed }
                             ];
@@ -1475,7 +1519,6 @@ export var Game = /*#__PURE__*/ function() {
                         var fingerStates = controlData.fingerStates;
                         // Per-finger drum labels at each fingertip
                         var drumFingers = [
-                            { idx: 8, finger: 'index', drum: 'SNARE' },
                             { idx: 12, finger: 'middle', drum: 'KICK' },
                             { idx: 16, finger: 'ring', drum: 'HIHAT' },
                             { idx: 20, finger: 'pinky', drum: 'CLAP' }

@@ -69,17 +69,7 @@ export class MusicManager {
         // =====================================================================
         this.fingerSynths = {};
 
-        // INDEX: Acid Squelch — trigger only (volume finger)
-        this.fingerSynths.index = new Tone.MonoSynth({
-            oscillator: { type: 'sawtooth' },
-            filter: { Q: 8, type: 'lowpass', rolloff: -24 },
-            envelope: { attack: 0.005, decay: 0.2, sustain: 0.3, release: 0.3 },
-            filterEnvelope: {
-                attack: 0.001, decay: 0.15, sustain: 0.1, release: 0.2,
-                baseFrequency: 200, octaves: 4, exponent: 2
-            }
-        }).connect(this.delay);
-        this.fingerSynths.index.volume.value = -4;
+        // INDEX: No synth (index is a square/volume finger — fully independent)
 
         // MIDDLE: Screaming Lead — FMSynth, distance = modulation chaos
         // Routed to its OWN dedicated filter chain (not shared delay)
@@ -140,12 +130,7 @@ export class MusicManager {
         // =====================================================================
         this.drumFingerSynths = {};
 
-        // DRUM INDEX: Light snare-like hit (index is square finger — minimal)
-        this.drumFingerSynths.index = new Tone.NoiseSynth({
-            noise: { type: 'white' },
-            envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
-        }).connect(this.limiter);
-        this.drumFingerSynths.index.volume.value = -6;
+        // DRUM INDEX: No synth (index is a square finger — fully independent)
 
         // DRUM MIDDLE: 808 Kick — the HEAVY finger, deep + punchy
         this.drumFingerSynths.middle = new Tone.MembraneSynth({
@@ -360,17 +345,7 @@ export class MusicManager {
 
         const rootFreq = Tone.Frequency(rootNote).toFrequency();
 
-        // === INDEX: Minor 3rd trigger only (index is a square/volume finger) ===
-        // Minimal — just a one-shot, no continuous effects
-        if (this.fingerSynths.index) {
-            if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
-                cooldowns.index = now;
-                const m3Freq = rootFreq * Math.pow(2, 3/12);
-                this.fingerSynths.index.triggerAttackRelease(
-                    Tone.Frequency(m3Freq).toNote(), '8n', Tone.now(), 0.7
-                );
-            }
-        }
+        // INDEX: No effect (square/volume finger — fully independent)
 
         // === MIDDLE: Root note + FM Screamer ===
         // Distance: 0 = clean subtle tone, 1 = insane FM screech
@@ -546,13 +521,7 @@ export class MusicManager {
             }
         }
 
-        // === INDEX: Snare-like trigger only (index is a square finger — minimal) ===
-        if (this.drumFingerSynths.index) {
-            if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
-                cooldowns.index = now;
-                this.drumFingerSynths.index.triggerAttackRelease('E2', '16n', Tone.now(), 0.6);
-            }
-        }
+        // INDEX: No effect (square finger — fully independent)
 
         // === MIDDLE: 808 Kick + Noise Riser — the HEAVY finger ===
         // Trigger: deep kick hit with distance-controlled pitch sweep
@@ -634,7 +603,93 @@ export class MusicManager {
 
     updateFingerExpression(params) {
         // Wrist angle now handles most modulation in updateGesture
-        // This is kept for backward compat but defers to wrist angle control
+    }
+
+    // --- Finger Touch Sounds ---
+    // Unique sound per finger, triggered when any two fingertips meet
+
+    triggerFingerTouch(finger1, finger2) {
+        if (!this.isStarted || this._panicMuted) return;
+
+        const now = performance.now();
+        if (!this._touchCooldown) this._touchCooldown = 0;
+        if ((now - this._touchCooldown) < 80) return; // debounce
+        this._touchCooldown = now;
+
+        // Create one-shot synths per touch — unique character based on which fingers
+        // Use the "more interesting" finger of the pair to pick the sound
+        const fingerPriority = ['pinky', 'ring', 'middle', 'index', 'thumb'];
+        const primary = fingerPriority.indexOf(finger1) < fingerPriority.indexOf(finger2) ? finger1 : finger2;
+
+        try {
+            let synth;
+            switch (primary) {
+                case 'thumb':
+                    // Water drip — sine with fast pitch fall
+                    synth = new Tone.Synth({
+                        oscillator: { type: 'sine' },
+                        envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+                    }).connect(this.reverb || this.limiter);
+                    synth.volume.value = -6;
+                    synth.triggerAttackRelease('G5', '32n', Tone.now(), 0.7);
+                    // Pitch drop for drip effect
+                    synth.frequency.rampTo(200, 0.12);
+                    break;
+
+                case 'index':
+                    // Bubble pop — short sine burst with upward pitch
+                    synth = new Tone.Synth({
+                        oscillator: { type: 'sine' },
+                        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 }
+                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
+                    synth.volume.value = -4;
+                    synth.triggerAttackRelease('C5', '64n', Tone.now(), 0.8);
+                    synth.frequency.rampTo(2000, 0.06);
+                    break;
+
+                case 'middle':
+                    // Sparkle — high metallic ping
+                    synth = new Tone.MetalSynth({
+                        harmonicity: 8, modulationIndex: 16,
+                        resonance: 5000, octaves: 0.5,
+                        envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.15 }
+                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
+                    synth.volume.value = -8;
+                    synth.triggerAttackRelease('32n', Tone.now(), 0.6);
+                    break;
+
+                case 'ring':
+                    // Glass chime — triangle with long reverb tail
+                    synth = new Tone.Synth({
+                        oscillator: { type: 'triangle' },
+                        envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
+                    }).connect(this._shimmerReverb || this.reverb || this.limiter);
+                    synth.volume.value = -4;
+                    const chimeNote = ['E6', 'G6', 'B6', 'D7'][Math.floor(Math.random() * 4)];
+                    synth.triggerAttackRelease(chimeNote, '16n', Tone.now(), 0.7);
+                    break;
+
+                case 'pinky':
+                    // Zap spark — FM burst, electric
+                    synth = new Tone.FMSynth({
+                        harmonicity: 12, modulationIndex: 30,
+                        oscillator: { type: 'square' },
+                        envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
+                        modulation: { type: 'sawtooth' },
+                        modulationEnvelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 }
+                    }).connect(this.delay || this.limiter);
+                    synth.volume.value = -6;
+                    synth.triggerAttackRelease('A5', '64n', Tone.now(), 0.9);
+                    break;
+            }
+
+            // Auto-dispose after sound completes
+            if (synth) {
+                setTimeout(() => { try { synth.dispose(); } catch(e) {} }, 1500);
+            }
+        } catch(e) {
+            console.warn('Touch sound error:', e);
+        }
     }
 
     // --- Timbre Cycling ---
