@@ -1,7 +1,8 @@
 import * as Tone from 'https://esm.sh/tone';
 
 // Psychedelic EDM Synth Engine — Comprehensive Hand-Distance Control
-// Every finger's distance from palm continuously drives dramatic synth parameters
+// Each finger's distance from palm is a continuous controller
+// Synth hand: melodic/tonal, Drum hand: percussive/textural
 export class MusicManager {
     constructor() {
         this.padSynths = new Map();
@@ -21,11 +22,8 @@ export class MusicManager {
         this.PERC_COOLDOWN_MS = 150;
         this.HAND_VELOCITY_THRESHOLD = 0.15;
 
-        this.fingerIntervals = {
-            index: 0, middle: 3, ring: 7, pinky: 10
-        };
+        this.fingerIntervals = { index: 0, middle: 3, ring: 7, pinky: 10 };
 
-        // Extended C Minor Pentatonic
         this.scale = [
             'C1','Eb1','G1','Bb1','C2','Eb2','F2','G2','Bb2',
             'C3','Eb3','F3','G3','Bb3','C4','Eb4','F4','G4','Bb4','C5','Eb5','F5'
@@ -44,10 +42,9 @@ export class MusicManager {
         this._prevDrumExtensions = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._drumFingerCooldowns = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
 
-        // Smoothed finger distances for continuous control (prevents jitter)
         this._smoothDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._smoothDrumDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
-        this._SMOOTH_ALPHA = 0.25; // smoothing factor
+        this._SMOOTH_ALPHA = 0.25;
     }
 
     async start() {
@@ -55,30 +52,24 @@ export class MusicManager {
         await Tone.start();
 
         try {
+
         // === MASTER EFFECTS CHAIN ===
         this.limiter = new Tone.Limiter(-3).toDestination();
-
-        // Dark reverb
         this.reverb = new Tone.Reverb({ decay: 6, preDelay: 0.03, wet: 0.35 }).connect(this.limiter);
-
-        // Ping-pong delay
         this.delay = new Tone.PingPongDelay({ delayTime: '8n.', feedback: 0.35, wet: 0.2 }).connect(this.reverb);
-
-        // Chorus
         this.chorus = new Tone.Chorus({ frequency: 2, delayTime: 4, depth: 0.7 }).connect(this.reverb);
         this.chorus.start();
-
-        // Master proximity filter
         this.filter = new Tone.Filter(16000, 'lowpass').connect(this.chorus);
-
-        // Analyser for visualization
         this.analyser = new Tone.Analyser('waveform', 1024);
         this.reverb.connect(this.analyser);
 
-        // NOTE: Thumb + Index are volume control (pinch) — no continuous effects on them
-
-        // === INDEX: Acid Squelch — continuously pitched, filter sweeps with distance ===
+        // =====================================================================
+        // SYNTH HAND FINGER SYNTHS — each is RADICALLY different
+        // Thumb+Index = volume (pinch), so only middle/ring/pinky get effects
+        // =====================================================================
         this.fingerSynths = {};
+
+        // INDEX: Acid Squelch — trigger only (volume finger)
         this.fingerSynths.index = new Tone.MonoSynth({
             oscillator: { type: 'sawtooth' },
             filter: { Q: 8, type: 'lowpass', rolloff: -24 },
@@ -90,92 +81,110 @@ export class MusicManager {
         }).connect(this.delay);
         this.fingerSynths.index.volume.value = -4;
 
-        // === MIDDLE: FM Chaos — distance controls modulation index (clean → insane) ===
+        // MIDDLE: Screaming Lead — FMSynth, distance = modulation chaos
+        // Routed to its OWN dedicated filter chain (not shared delay)
+        this._middleFilter = new Tone.Filter({ frequency: 2000, type: 'lowpass', Q: 4 }).connect(this.reverb);
         this.fingerSynths.middle = new Tone.FMSynth({
-            harmonicity: 3,
-            modulationIndex: 1,
+            harmonicity: 3, modulationIndex: 1,
             oscillator: { type: 'square' },
-            envelope: { attack: 0.01, decay: 0.3, sustain: 0.2, release: 0.3 },
+            envelope: { attack: 0.01, decay: 0.4, sustain: 0.3, release: 0.4 },
             modulation: { type: 'sawtooth' },
-            modulationEnvelope: { attack: 0.01, decay: 0.15, sustain: 0.1, release: 0.1 }
-        }).connect(this.delay);
-        this.fingerSynths.middle.volume.value = -6;
+            modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.15, release: 0.15 }
+        }).connect(this._middleFilter);
+        this.fingerSynths.middle.volume.value = -4;
 
-        // === RING: Shimmer Delay — distance controls delay time + feedback (tight → infinite) ===
+        // RING: Crystal Shimmer — MetalSynth through its OWN reverb (long tail)
+        this._shimmerReverb = new Tone.Reverb({ decay: 10, preDelay: 0.05, wet: 0.8 }).connect(this.limiter);
         this.fingerSynths.ring = new Tone.MetalSynth({
             harmonicity: 12, modulationIndex: 24,
-            resonance: 3000, octaves: 1.5,
-            envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }
-        }).connect(this.delay);
-        this.fingerSynths.ring.volume.value = -8;
+            resonance: 4000, octaves: 1.5,
+            envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.4 }
+        }).connect(this._shimmerReverb);
+        this.fingerSynths.ring.volume.value = -6;
 
-        // === PINKY: Sub Drop + Distortion — distance controls distortion amount ===
+        // PINKY: Sub Cannon — MembraneSynth + Distortion, HUGE bass drops
         this.distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this.limiter);
         this.fingerSynths.pinky = new Tone.MembraneSynth({
-            pitchDecay: 0.3, octaves: 6,
+            pitchDecay: 0.3, octaves: 8,
             oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.8, sustain: 0, release: 0.5 }
+            envelope: { attack: 0.001, decay: 1.0, sustain: 0, release: 0.5 }
         }).connect(this.distortion);
-        this.fingerSynths.pinky.volume.value = -2;
+        this.fingerSynths.pinky.volume.value = 0; // LOUD
 
-        // === CONTINUOUS SYNTHS (always sounding when hand present) ===
-        // Only on middle/ring/pinky — NOT thumb/index (those are volume fingers)
-
-        // Middle continuous: FM pad that gets chaotic with distance
+        // === CONTINUOUS SYNTH: Middle finger FM pad (always-on, distance = chaos) ===
         this.middleContinuous = new Tone.FMSynth({
             harmonicity: 2, modulationIndex: 0.5,
             oscillator: { type: 'sine' },
             envelope: { attack: 0.4, decay: 0, sustain: 1, release: 0.6 },
             modulation: { type: 'triangle' },
             modulationEnvelope: { attack: 0.4, decay: 0, sustain: 1, release: 0.6 }
-        }).connect(this.chorus);
-        this.middleContinuous.volume.value = -20;
+        }).connect(this._middleFilter);
+        this.middleContinuous.volume.value = -22;
 
-        // === DRUM HAND SYNTHS (hand 1) ===
+        // === CONTINUOUS SYNTH: Ring finger shimmer drone ===
+        this.ringContinuous = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.8, decay: 0, sustain: 1, release: 1.0 }
+        }).connect(this._shimmerReverb);
+        this.ringContinuous.volume.value = -30;
+
+        // === CONTINUOUS SYNTH: Pinky sub drone ===
+        this.pinkyContinuous = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.5, decay: 0, sustain: 1, release: 0.8 }
+        }).connect(this.distortion);
+        this.pinkyContinuous.volume.value = -30;
+
+        // =====================================================================
+        // DRUM HAND FINGER SYNTHS — loud, immediate, each very different
+        // =====================================================================
         this.drumFingerSynths = {};
 
-        // Index: Kick
+        // DRUM INDEX: 808 Kick — deep, punchy, LOUD
         this.drumFingerSynths.index = new Tone.MembraneSynth({
             pitchDecay: 0.08, octaves: 8,
             oscillator: { type: 'sine' },
             envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.5 }
         }).connect(this.limiter);
-        this.drumFingerSynths.index.volume.value = -4;
+        this.drumFingerSynths.index.volume.value = -2;
 
-        // Middle: Sci-Fi Riser
+        // DRUM MIDDLE: Noise Riser/Sweep — continuous filter controlled by distance
         this.drumFingerSynths.middle = new Tone.NoiseSynth({
             noise: { type: 'pink' },
-            envelope: { attack: 0.05, decay: 0.6, sustain: 0, release: 0.3 }
+            envelope: { attack: 0.1, decay: 0, sustain: 1, release: 0.3 }
         });
         this._riserFilter = new Tone.AutoFilter({
             frequency: 4, baseFrequency: 200, octaves: 6,
-            filter: { type: 'bandpass', Q: 2 }
+            filter: { type: 'bandpass', Q: 3 }
         }).connect(this.delay);
         this._riserFilter.start();
         this.drumFingerSynths.middle.connect(this._riserFilter);
         this.drumFingerSynths.middle.volume.value = -8;
+        this._drumMiddleActive = false;
 
-        // Ring: Granular Stutter
+        // DRUM RING: Stutter/Glitch — rapid noise bursts
         this.drumFingerSynths.ring = new Tone.NoiseSynth({
             noise: { type: 'white' },
-            envelope: { attack: 0.001, decay: 0.02, sustain: 0, release: 0.01 }
+            envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.01 }
         }).connect(this.limiter);
-        this.drumFingerSynths.ring.volume.value = -10;
+        this.drumFingerSynths.ring.volume.value = -6;
+        this._stutterInterval = null;
 
-        // Pinky: Reverb Crash
+        // DRUM PINKY: Reverb Crash — noise into massive reverb
         this._crashReverb = new Tone.Reverb({ decay: 8, preDelay: 0.01, wet: 0.9 }).connect(this.limiter);
         this.drumFingerSynths.pinky = new Tone.NoiseSynth({
             noise: { type: 'white' },
-            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 }
+            envelope: { attack: 0.001, decay: 0.2, sustain: 0, release: 0.1 }
         }).connect(this._crashReverb);
-        this.drumFingerSynths.pinky.volume.value = -6;
+        this.drumFingerSynths.pinky.volume.value = -4;
 
-        // Thumb: Drum hand thumb = tempo wobble synth
-        this.drumThumbSynth = new Tone.Synth({
+        // DRUM THUMB: Pitched tom
+        this.drumThumbSynth = new Tone.MembraneSynth({
+            pitchDecay: 0.05, octaves: 4,
             oscillator: { type: 'sine' },
-            envelope: { attack: 0.01, decay: 0.3, sustain: 0, release: 0.2 }
+            envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 }
         }).connect(this.limiter);
-        this.drumThumbSynth.volume.value = -10;
+        this.drumThumbSynth.volume.value = -4;
 
         // Legacy references
         this.kickSynth = this.drumFingerSynths.index;
@@ -183,7 +192,7 @@ export class MusicManager {
             noise: { type: 'white' },
             envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 }
         }).connect(this.limiter);
-        this.hatSynth.volume.value = -12;
+        this.hatSynth.volume.value = -8;
         this.pluckSynth = { releaseAll: () => {} };
 
         // === SUB-BASS ===
@@ -197,17 +206,15 @@ export class MusicManager {
         this.wobbleLFO.connect(this.subBass.volume);
         this.wobbleLFO.start();
 
-        // Track continuous synth state
         this._continuousActive = false;
 
         } catch(e) {
             console.error('MusicManager start() error:', e);
         }
         this.isStarted = true;
-        console.log('Psychedelic EDM engine v2 ready — 10-finger distance-from-palm control');
+        console.log('Psychedelic EDM engine v2 ready — distance-from-palm control');
     }
 
-    // --- Smoothing helper ---
     _smooth(target, key, raw) {
         target[key] += (raw - target[key]) * this._SMOOTH_ALPHA;
         return target[key];
@@ -243,11 +250,13 @@ export class MusicManager {
         this.handVolumes.set(handId, 0.2);
         this.fingerCooldowns.set(handId, { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 });
 
-        // Start continuous synths (middle only — thumb/index are volume fingers)
+        // Start continuous synths
         if (!this._continuousActive) {
             this._continuousActive = true;
             try {
                 this.middleContinuous.triggerAttack(freq * 1.498, Tone.now());
+                this.ringContinuous.triggerAttack(freq * 2, Tone.now());
+                this.pinkyContinuous.triggerAttack(freq / 2, Tone.now());
             } catch(e) {}
         }
     }
@@ -261,9 +270,10 @@ export class MusicManager {
         if (padData.harmonySynth) padData.harmonySynth.frequency.rampTo(freq * 1.498, 0.15);
         if (this.subBass) this.subBass.frequency.rampTo(freq / 2, 0.2);
 
-        // Update continuous synth to track root
         try {
             if (this.middleContinuous) this.middleContinuous.frequency.rampTo(freq * 1.498, 0.2);
+            if (this.ringContinuous) this.ringContinuous.frequency.rampTo(freq * 2, 0.2);
+            if (this.pinkyContinuous) this.pinkyContinuous.frequency.rampTo(freq / 2, 0.2);
         } catch(e) {}
 
         padData.currentRoot = newRootNote;
@@ -289,10 +299,11 @@ export class MusicManager {
                 this.subBass.triggerRelease(Tone.now());
             }
 
-            // Release continuous synths
             if (this.padSynths.size <= 1) {
                 this._continuousActive = false;
                 try { this.middleContinuous.triggerRelease(Tone.now()); } catch(e) {}
+                try { this.ringContinuous.triggerRelease(Tone.now()); } catch(e) {}
+                try { this.pinkyContinuous.triggerRelease(Tone.now()); } catch(e) {}
             }
 
             if (!this._pendingDisposals) this._pendingDisposals = new Set();
@@ -312,9 +323,11 @@ export class MusicManager {
         }
     }
 
-    // --- SYNTH HAND (hand 0): Comprehensive Distance-from-Palm Control ---
-    // Each finger's distance ratio (0=curled to palm, 1=fully extended) CONTINUOUSLY
-    // drives dramatic parameter changes. Triggers still fire on transitions.
+    // =====================================================================
+    // SYNTH HAND (hand 0)
+    // Thumb+Index = volume only. Middle/Ring/Pinky = continuous + triggers
+    // Each finger sounds RADICALLY different via separate signal chains
+    // =====================================================================
 
     updateGesture(handId, gestureData) {
         if (!this.isStarted || this._panicMuted) return;
@@ -329,12 +342,10 @@ export class MusicManager {
         }
         const prevExt = this._prevExtensions[handId];
 
-        // Use fingerDistances (Euclidean from palm) as primary control, fall back to extensions
         const dist = gestureData.fingerDistances || gestureData.fingerExtensions || {
             thumb: 0.1, index: 0.1, middle: 0.1, ring: 0.1, pinky: 0.1
         };
 
-        // Smooth all distances to prevent jitter
         const d = {};
         for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
             d[f] = this._smooth(this._smoothDist, f, dist[f] || 0);
@@ -342,13 +353,7 @@ export class MusicManager {
 
         const rootFreq = Tone.Frequency(rootNote).toFrequency();
 
-        // ====================================================================
-        // THUMB + INDEX: These are the VOLUME CONTROL fingers (pinch distance)
-        // Do NOT assign continuous effects here — they'd be forced on whenever
-        // volume is up. Only trigger one-shots on curl→extend transitions.
-        // ====================================================================
-
-        // INDEX: Acid Squelch — trigger only (no continuous filter tied to distance)
+        // === THUMB + INDEX: Volume fingers — trigger-only one-shots ===
         if (this.fingerSynths.index) {
             if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.index = now;
@@ -358,16 +363,14 @@ export class MusicManager {
             }
         }
 
-        // ====================================================================
-        // MIDDLE: FM Chaos — Distance = modulation index (0.5→40)
-        // Close = clean tone, extended = insane FM screeching
-        // ====================================================================
+        // === MIDDLE: FM Screamer ===
+        // Distance: 0 = clean subtle tone, 1 = insane FM screech
+        // Continuous: filter cutoff + FM mod index + volume of always-on FM pad
         if (this.fingerSynths.middle) {
             try {
-                this.fingerSynths.middle.modulationIndex.value = 0.5 + Math.pow(d.middle, 2) * 40;
-                this.fingerSynths.middle.harmonicity.value = 2 + d.middle * 10;
+                this.fingerSynths.middle.modulationIndex.value = 0.5 + Math.pow(d.middle, 1.5) * 50;
+                this.fingerSynths.middle.harmonicity.value = 2 + d.middle * 12;
             } catch(e) {}
-
             if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.middle = now;
                 const zapFreq = rootFreq * Math.pow(2, 3/12);
@@ -376,57 +379,53 @@ export class MusicManager {
                 );
             }
         }
-        // Continuous FM pad
+        if (this._middleFilter) {
+            this._middleFilter.frequency.value = 400 + Math.pow(d.middle, 2) * 8000;
+            this._middleFilter.Q.value = 2 + d.middle * 10;
+        }
         if (this.middleContinuous) {
             try {
-                this.middleContinuous.modulationIndex.value = 0.2 + Math.pow(d.middle, 2) * 15;
-                this.middleContinuous.volume.rampTo(-28 + d.middle * 14, 0.05);
+                this.middleContinuous.modulationIndex.value = 0.1 + Math.pow(d.middle, 2) * 20;
+                this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.05);
             } catch(e) {}
         }
 
-        // ====================================================================
-        // RING: Shimmer/Delay — Distance = delay feedback + time warping
-        // Close = dry/tight, extended = infinite echoing shimmer
-        // ====================================================================
+        // === RING: Crystal Shimmer ===
+        // Distance: 0 = silence, 1 = bright shimmering bells + lush reverb tail
+        // Completely different from middle — metallic/bell tones through long reverb
         if (this.fingerSynths.ring) {
             if (prevExt.ring < 0.2 && d.ring > 0.35 && (now - cooldowns.ring) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.ring = now;
                 const chimeFreq = rootFreq * Math.pow(2, 7/12);
-                this.fingerSynths.ring.triggerAttackRelease(chimeFreq, '4n', Tone.now(), 0.8);
+                this.fingerSynths.ring.triggerAttackRelease(chimeFreq, '4n', Tone.now(), 0.7 + d.ring * 0.3);
             }
         }
-        if (this.delay) {
-            this.delay.feedback.value = 0.1 + d.ring * 0.65;
-            this.delay.wet.value = 0.05 + d.ring * 0.5;
-            // Modulate delay time subtly for chorus-like shimmer
-            try {
-                const delayMod = 0.15 + d.ring * 0.15; // 8th note dotted range
-                this.delay.delayTime.value = delayMod;
-            } catch(e) {}
+        if (this._shimmerReverb) {
+            this._shimmerReverb.wet.value = 0.3 + d.ring * 0.7;
+        }
+        if (this.ringContinuous) {
+            // High triangle drone that swells with ring distance
+            this.ringContinuous.volume.rampTo(-35 + d.ring * 20, 0.05);
         }
 
-        // ====================================================================
-        // PINKY: Sub Drop + Bitcrusher — Distance = crush bits + reverb intensity
-        // Close = clean sub, extended = destroyed/crushed + massive reverb
-        // ====================================================================
+        // === PINKY: Sub Cannon + Distortion ===
+        // Distance: 0 = clean silence, 1 = massive distorted sub bass earthquake
+        // Completely different from ring — LOW and DIRTY vs ring's HIGH and CLEAN
         if (this.fingerSynths.pinky) {
             if (prevExt.pinky < 0.2 && d.pinky > 0.35 && (now - cooldowns.pinky) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.pinky = now;
-                this.fingerSynths.pinky.triggerAttackRelease('C1', '4n', Tone.now(), 0.9);
+                this.fingerSynths.pinky.triggerAttackRelease('C1', '2n', Tone.now(), 0.9);
             }
         }
         if (this.distortion) {
-            // 0 (clean) → 1 (destroyed)
-            this.distortion.distortion = Math.pow(d.pinky, 2);
-            this.distortion.wet.value = d.pinky * 0.8;
+            this.distortion.distortion = Math.pow(d.pinky, 1.5) * 0.8;
+            this.distortion.wet.value = d.pinky * 0.7;
         }
-        if (this.reverb) {
-            this.reverb.wet.value = 0.15 + d.pinky * 0.55;
+        if (this.pinkyContinuous) {
+            this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 22, 0.05);
         }
 
-        // ====================================================================
-        // COMBINED: Hand spread → chorus + detuning + wobble speed
-        // ====================================================================
+        // === COMBINED: Hand spread → chorus + detuning + wobble ===
         const spread = gestureData.handSpread || 0;
         if (this.chorus) {
             this.chorus.depth = 0.3 + spread * 0.7;
@@ -440,12 +439,21 @@ export class MusicManager {
             if (padData.harmonySynth) padData.harmonySynth.detune.rampTo(-spread * 30, 0.1);
         });
 
+        // === DELAY: Controlled by ring (shimmer) ===
+        if (this.delay) {
+            this.delay.feedback.value = 0.1 + d.ring * 0.55;
+            this.delay.wet.value = 0.05 + d.ring * 0.4;
+        }
+
+        // === REVERB: Controlled by combined ring+pinky ===
+        if (this.reverb) {
+            this.reverb.wet.value = 0.15 + Math.max(d.ring, d.pinky) * 0.5;
+        }
+
         // Store for next frame
-        prevExt.thumb = d.thumb;
-        prevExt.index = d.index;
-        prevExt.middle = d.middle;
-        prevExt.ring = d.ring;
-        prevExt.pinky = d.pinky;
+        for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
+            prevExt[f] = d[f];
+        }
 
         // Percussive hits on sharp hand movement
         if ((now - this.percCooldown) > this.PERC_COOLDOWN_MS) {
@@ -463,7 +471,12 @@ export class MusicManager {
         }
     }
 
-    // --- DRUM HAND (hand 1): Distance-from-Palm Control ---
+    // =====================================================================
+    // DRUM HAND (hand 1)
+    // Fingers held up = drum pattern active (via DrumManager labels)
+    // PLUS: continuous distance-based synth percussion from MusicManager
+    // Key fix: drum middle is now always-on when extended (not just triggers)
+    // =====================================================================
 
     updateDrumGesture(gestureData) {
         if (!this.isStarted || this._panicMuted) return;
@@ -481,19 +494,19 @@ export class MusicManager {
             d[f] = this._smooth(this._smoothDrumDist, f, dist[f] || 0);
         }
 
-        // THUMB: Tempo wobble — distance triggers rhythmic tom hits at varying pitch
+        // === THUMB: Tom hit — trigger on extend ===
         if (this.drumThumbSynth) {
             if (prevExt.thumb < 0.2 && d.thumb > 0.35 && (now - (cooldowns.thumb || 0)) > 200) {
                 cooldowns.thumb = now;
-                const pitch = 60 + d.thumb * 200; // Hz
-                this.drumThumbSynth.triggerAttackRelease(pitch, '16n', Tone.now(), 0.7);
+                const pitch = 80 + d.thumb * 150;
+                this.drumThumbSynth.triggerAttackRelease(pitch, '8n', Tone.now(), 0.8);
             }
         }
 
-        // INDEX: Kick — distance controls pitch decay depth
+        // === INDEX: 808 Kick — trigger, distance = pitch sweep depth ===
         if (this.drumFingerSynths.index) {
             try {
-                this.drumFingerSynths.index.pitchDecay = 0.02 + d.index * 0.2;
+                this.drumFingerSynths.index.pitchDecay = 0.02 + d.index * 0.15;
                 this.drumFingerSynths.index.octaves = 4 + d.index * 6;
             } catch(e) {}
             if (prevExt.index < 0.2 && d.index > 0.35 && (now - cooldowns.index) > this.FINGER_COOLDOWN_MS) {
@@ -502,64 +515,67 @@ export class MusicManager {
             }
         }
 
-        // MIDDLE: Riser — distance = filter sweep position
+        // === MIDDLE: Noise Riser — CONTINUOUS: starts/stops based on distance ===
+        // When middle finger is extended, the riser plays continuously
+        // Distance controls the filter sweep position in real-time
         if (this._riserFilter) {
-            this._riserFilter.baseFrequency = 100 + d.middle * 4000;
+            this._riserFilter.baseFrequency = 100 + Math.pow(d.middle, 2) * 5000;
             this._riserFilter.octaves = 2 + d.middle * 6;
         }
         if (this.drumFingerSynths.middle) {
-            if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > 200) {
-                cooldowns.middle = now;
-                this.drumFingerSynths.middle.triggerAttackRelease('4n', Tone.now(), 0.7);
+            if (d.middle > 0.25 && !this._drumMiddleActive) {
+                this._drumMiddleActive = true;
+                this.drumFingerSynths.middle.triggerAttack(Tone.now(), 0.6);
+            } else if (d.middle < 0.15 && this._drumMiddleActive) {
+                this._drumMiddleActive = false;
+                try { this.drumFingerSynths.middle.triggerRelease(Tone.now()); } catch(e) {}
+            }
+            // Volume scales with distance
+            if (this._drumMiddleActive) {
+                this.drumFingerSynths.middle.volume.rampTo(-14 + d.middle * 10, 0.05);
             }
         }
 
-        // RING: Stutter — distance controls burst count and speed
+        // === RING: Stutter — CONTINUOUS rapid-fire when extended ===
+        // Distance controls stutter speed: close = slow, far = machine-gun
         if (this.drumFingerSynths.ring) {
-            if (prevExt.ring < 0.2 && d.ring > 0.35 && (now - cooldowns.ring) > 250) {
-                cooldowns.ring = now;
-                const burstCount = Math.round(2 + d.ring * 8); // 2→10 hits
-                const burstSpeed = Math.max(15, 60 - d.ring * 40); // ms between hits
-                for (let j = 0; j < burstCount; j++) {
-                    setTimeout(() => {
-                        try { this.drumFingerSynths.ring.triggerAttackRelease('64n', Tone.now(), 0.6); } catch(e) {}
-                    }, j * burstSpeed);
+            if (d.ring > 0.3) {
+                const stutterMs = Math.max(30, 200 - d.ring * 170); // 200ms → 30ms
+                if (!this._stutterInterval || (now - this._lastStutter) > stutterMs) {
+                    this._lastStutter = now;
+                    this.drumFingerSynths.ring.triggerAttackRelease('64n', Tone.now(), 0.4 + d.ring * 0.4);
                 }
             }
         }
 
-        // PINKY: Reverb Crash — distance = reverb size + wet
+        // === PINKY: Crash — trigger + continuous reverb depth ===
         if (this._crashReverb) {
             this._crashReverb.wet.value = 0.3 + d.pinky * 0.7;
         }
         if (this.drumFingerSynths.pinky) {
             if (prevExt.pinky < 0.2 && d.pinky > 0.35 && (now - cooldowns.pinky) > 300) {
                 cooldowns.pinky = now;
-                this.drumFingerSynths.pinky.triggerAttackRelease('8n', Tone.now(), 0.8);
+                this.drumFingerSynths.pinky.triggerAttackRelease('4n', Tone.now(), 0.9);
             }
         }
 
-        // CONTINUOUS: chorus from average drum distance
+        // Chorus from average
         const avgDist = (d.index + d.middle + d.ring + d.pinky) / 4;
         if (this.chorus) {
             this.chorus.depth = 0.3 + avgDist * 0.7;
         }
 
-        prevExt.thumb = d.thumb;
-        prevExt.index = d.index;
-        prevExt.middle = d.middle;
-        prevExt.ring = d.ring;
-        prevExt.pinky = d.pinky;
+        for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
+            prevExt[f] = d[f];
+        }
     }
 
-    // --- Finger Expression (legacy + enhanced) ---
+    // --- Finger Expression ---
 
     updateFingerExpression(params) {
         if (!this.isStarted) return;
+        const { handSpread } = params;
 
-        const { fingerDistances, middleFinger, ringFinger, pinkyFinger, handSpread } = params;
-
-        // Hand spread → wobble LFO speed + pad detune
         if (this.wobbleLFO) {
             this.wobbleLFO.frequency.value = 0.2 + handSpread * 6;
         }
@@ -584,7 +600,6 @@ export class MusicManager {
 
         this.currentSynthIndex = (this.currentSynthIndex + 1) % this.padPresets.length;
         const preset = this.padPresets[this.currentSynthIndex];
-
         console.log(`Switched to pad preset ${this.currentSynthIndex}: ${preset.name}`);
 
         setTimeout(() => {
@@ -601,9 +616,6 @@ export class MusicManager {
             const cutoff = 16000 * Math.pow(0.075, value);
             this.filter.frequency.rampTo(cutoff, 0.2);
         }
-        if (this.reverb) this.reverb.wet.value = 0.3 + value * 0.3;
-        if (this.delay) this.delay.wet.value = 0.15 + value * 0.2;
-        if (this.chorus) this.chorus.depth = 0.4 + value * 0.4;
     }
 
     // --- PANIC ---
@@ -626,9 +638,14 @@ export class MusicManager {
 
         if (this.subBass) try { this.subBass.triggerRelease(Tone.now()); } catch(e) {}
 
-        // Release continuous synths
         try { this.middleContinuous.triggerRelease(Tone.now()); } catch(e) {}
+        try { this.ringContinuous.triggerRelease(Tone.now()); } catch(e) {}
+        try { this.pinkyContinuous.triggerRelease(Tone.now()); } catch(e) {}
         this._continuousActive = false;
+
+        // Stop continuous drum middle
+        this._drumMiddleActive = false;
+        try { this.drumFingerSynths.middle.triggerRelease(Tone.now()); } catch(e) {}
 
         if (this.fingerSynths) {
             for (const finger of ['index', 'middle', 'ring', 'pinky']) {
@@ -648,7 +665,7 @@ export class MusicManager {
 
         if (this.filter) this.filter.frequency.value = 16000;
         if (this.reverb) this.reverb.wet.value = 0.35;
-        if (this.delay) this.delay.wet.value = 0.2;
+        if (this.delay) { this.delay.wet.value = 0.2; this.delay.feedback.value = 0.35; }
         if (this.chorus) this.chorus.depth = 0.6;
         if (this.distortion) { this.distortion.distortion = 0; this.distortion.wet.value = 0; }
 
@@ -657,7 +674,7 @@ export class MusicManager {
         this._smoothDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
         this._smoothDrumDist = { thumb: 0, index: 0, middle: 0, ring: 0, pinky: 0 };
 
-        console.log('PANIC — all sound killed, muted for 1 second');
+        console.log('PANIC — all sound killed');
     }
 
     getAnalyser() {

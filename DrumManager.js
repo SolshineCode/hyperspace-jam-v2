@@ -156,10 +156,10 @@ var fingerToDrumMap = {
             onload: function() {
                 isLoaded = true;
                 // Set volumes after loading
-                players.player('kick').volume.value = -6; // Lowered kick volume
-                players.player('snare').volume.value = 0;
-                players.player('hihat').volume.value = -2; // Softer hi-hat
-                players.player('clap').volume.value = 0;
+                players.player('kick').volume.value = -2; // Punchy kick
+                players.player('snare').volume.value = 2;
+                players.player('hihat').volume.value = 0;
+                players.player('clap').volume.value = 2;
                 console.log("Drum samples loaded successfully.");
                 resolve();
             },
