@@ -77,61 +77,69 @@ export class MusicManager {
         this.reverb.connect(this.analyser);
 
         // =====================================================================
-        // SYNTH HAND FINGER SYNTHS — each is RADICALLY different
-        // Thumb+Index = volume (pinch), so only middle/ring/pinky get effects
+        // SYNTH HAND — Psychedelic EDM soundboard voices
+        // Thumb+Index = volume (pinch). Middle/Ring/Pinky = the instruments.
         // =====================================================================
         this.fingerSynths = {};
 
-        // INDEX: No synth (index is a square/volume finger — fully independent)
-
-        // MIDDLE: Screaming Lead — FMSynth, distance = modulation chaos
-        // Routed to its OWN dedicated filter chain (not shared delay)
-        this._middleFilter = new Tone.Filter({ frequency: 2000, type: 'lowpass', Q: 4 }).connect(this.reverb);
-        this.fingerSynths.middle = new Tone.FMSynth({
-            harmonicity: 3, modulationIndex: 1,
-            oscillator: { type: 'square' },
-            envelope: { attack: 0.01, decay: 0.4, sustain: 0.3, release: 0.4 },
-            modulation: { type: 'sawtooth' },
-            modulationEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.15, release: 0.15 }
-        }).connect(this._middleFilter);
+        // === MIDDLE (ROOT): 303 Acid Squelch ===
+        // Sawtooth + high-resonance filter sweep. THE psychedelic sound.
+        // Distance controls filter cutoff — close=dark, extended=screaming acid
+        this._acidFilter = new Tone.Filter({
+            frequency: 400, type: 'lowpass', Q: 12, rolloff: -24
+        }).connect(this.delay);
+        this.fingerSynths.middle = new Tone.MonoSynth({
+            oscillator: { type: 'sawtooth' },
+            filter: { Q: 12, type: 'lowpass', rolloff: -24 },
+            envelope: { attack: 0.005, decay: 0.2, sustain: 0.3, release: 0.3 },
+            filterEnvelope: {
+                attack: 0.001, decay: 0.2, sustain: 0.1, release: 0.3,
+                baseFrequency: 200, octaves: 4, exponent: 2
+            }
+        }).connect(this._acidFilter);
         this.fingerSynths.middle.volume.value = -4;
 
-        // RING: Crystal Shimmer — MetalSynth through its OWN reverb (long tail)
-        this._shimmerReverb = new Tone.Reverb({ decay: 10, preDelay: 0.05, wet: 0.8 }).connect(this.limiter);
-        this.fingerSynths.ring = new Tone.MetalSynth({
-            harmonicity: 12, modulationIndex: 24,
-            resonance: 4000, octaves: 1.5,
-            envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.4 }
+        // === RING (5th): Goa Pluck ===
+        // Square wave, fast decay, no sustain — futuristic harp.
+        // Drowned in ping-pong delay so a single tap echoes across stereo field.
+        this._shimmerReverb = new Tone.Reverb({ decay: 4, preDelay: 0.02, wet: 0.5 }).connect(this.limiter);
+        this._pluckDelay = new Tone.PingPongDelay({
+            delayTime: '16n', feedback: 0.45, wet: 0.4
         }).connect(this._shimmerReverb);
+        this.fingerSynths.ring = new Tone.Synth({
+            oscillator: { type: 'square' },
+            envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.08 }
+        }).connect(this._pluckDelay);
         this.fingerSynths.ring.volume.value = -6;
 
-        // PINKY: Sub Cannon — MembraneSynth + Distortion, HUGE bass drops
+        // === PINKY (m7): FM Laser Zap ===
+        // Sine + pitch envelope + FM for metallic "pew-pew" sci-fi laser.
+        // Distance controls FM depth — close=subtle, extended=full laser
         this.distortion = new Tone.Distortion({ distortion: 0, wet: 0 }).connect(this.limiter);
-        this.fingerSynths.pinky = new Tone.MembraneSynth({
-            pitchDecay: 0.3, octaves: 8,
+        this.fingerSynths.pinky = new Tone.FMSynth({
+            harmonicity: 8, modulationIndex: 20,
             oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 1.0, sustain: 0, release: 0.5 }
+            envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+            modulation: { type: 'square' },
+            modulationEnvelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.05 }
         }).connect(this.distortion);
-        this.fingerSynths.pinky.volume.value = 0; // LOUD
+        this.fingerSynths.pinky.volume.value = -2;
 
-        // === CONTINUOUS SYNTH: Middle finger FM pad (always-on, distance = chaos) ===
-        this.middleContinuous = new Tone.FMSynth({
-            harmonicity: 2, modulationIndex: 0.5,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.4, decay: 0, sustain: 1, release: 0.6 },
-            modulation: { type: 'triangle' },
-            modulationEnvelope: { attack: 0.4, decay: 0, sustain: 1, release: 0.6 }
-        }).connect(this._middleFilter);
-        this.middleContinuous.volume.value = -22;
+        // === CONTINUOUS: Acid squelch drone (always-on, distance = filter) ===
+        this.middleContinuous = new Tone.Synth({
+            oscillator: { type: 'sawtooth' },
+            envelope: { attack: 0.4, decay: 0, sustain: 1, release: 0.6 }
+        }).connect(this._acidFilter);
+        this.middleContinuous.volume.value = -24;
 
-        // === CONTINUOUS SYNTH: Ring finger shimmer drone ===
+        // === CONTINUOUS: Ring pluck shimmer drone ===
         this.ringContinuous = new Tone.Synth({
             oscillator: { type: 'triangle' },
             envelope: { attack: 0.8, decay: 0, sustain: 1, release: 1.0 }
         }).connect(this._shimmerReverb);
         this.ringContinuous.volume.value = -30;
 
-        // === CONTINUOUS SYNTH: Pinky sub drone ===
+        // === CONTINUOUS: Pinky sub-wobble drone ===
         this.pinkyContinuous = new Tone.Synth({
             oscillator: { type: 'sine' },
             envelope: { attack: 0.5, decay: 0, sustain: 1, release: 0.8 }
@@ -139,44 +147,28 @@ export class MusicManager {
         this.pinkyContinuous.volume.value = -30;
 
         // =====================================================================
-        // DRUM HAND — GLITCH-HOP TEXTURES (not kick-hat-clap drum machine)
-        // Pre-allocated synths, finger distance = repeat rate + character
+        // DRUM HAND — Real drum samples, finger distance = repeat rate
         // =====================================================================
         this.drumFingerSynths = {};
 
-        // MIDDLE: Glitch Blip — pitched membrane with random pitch per hit
-        // Short, clicky, melodic — like Amon Tobin / Tipper glitch percussion
-        this._glitchBlip = new Tone.MembraneSynth({
-            pitchDecay: 0.015, octaves: 3,
-            oscillator: { type: 'sine' },
-            envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.04 }
-        }).connect(this.delay);
-        this._glitchBlip.volume.value = -8;
+        // Drum sample players — kick, hihat, clap
+        this.drumPlayers = new Tone.Players({
+            urls: {
+                kick: 'assets/kick.wav',
+                hihat: 'assets/hihat.wav',
+                clap: 'assets/clap.wav'
+            },
+            onload: () => {
+                console.log('Drum samples loaded');
+                this._drumPlayersLoaded = true;
+                this.drumPlayers.player('kick').volume.value = 0;
+                this.drumPlayers.player('hihat').volume.value = -2;
+                this.drumPlayers.player('clap').volume.value = 0;
+            }
+        }).connect(this.limiter);
+        this._drumPlayersLoaded = false;
 
-        // RING: Filtered Grain — noise burst through resonant bandpass
-        // Each hit has randomized filter freq for organic texture
-        this._grainFilter = new Tone.Filter({
-            frequency: 2000, type: 'bandpass', Q: 8, rolloff: -24
-        }).connect(this.chorus);
-        this._grainSynth = new Tone.NoiseSynth({
-            noise: { type: 'pink' },
-            envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 }
-        }).connect(this._grainFilter);
-        this._grainSynth.volume.value = -10;
-
-        // PINKY: Textured Wash — longer noise through modulated filter + reverb
-        // Evolving pad-like percussion, not a clap
-        this._washReverb = new Tone.Reverb({ decay: 4, preDelay: 0.02, wet: 0.7 }).connect(this.limiter);
-        this._washFilter = new Tone.Filter({
-            frequency: 3000, type: 'lowpass', Q: 3
-        }).connect(this._washReverb);
-        this._washSynth = new Tone.NoiseSynth({
-            noise: { type: 'brown' },
-            envelope: { attack: 0.01, decay: 0.15, sustain: 0, release: 0.1 }
-        }).connect(this._washFilter);
-        this._washSynth.volume.value = -10;
-
-        // THUMB: Glitch zap — short FM burst (not a tom)
+        // THUMB: Glitch zap trigger
         this.drumThumbSynth = new Tone.FMSynth({
             harmonicity: 6, modulationIndex: 15,
             oscillator: { type: 'square' },
@@ -186,13 +178,21 @@ export class MusicManager {
         }).connect(this.delay);
         this.drumThumbSynth.volume.value = -8;
 
-        // Beat timers for glitch-hop repeat rate
-        this._drumBeatTimers = { blip: 0, grain: 0, wash: 0 };
-        this._drumPlayersLoaded = true; // no samples to load, all synth
+        // Beat timers
+        this._drumBeatTimers = { kick: 0, hihat: 0, clap: 0 };
 
-        // Legacy references (for hand-velocity percussion on synth hand)
-        this.kickSynth = this._glitchBlip;
-        this.hatSynth = this._grainSynth;
+        // Legacy references
+        this.kickSynth = new Tone.MembraneSynth({
+            pitchDecay: 0.08, octaves: 8,
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.3 }
+        }).connect(this.limiter);
+        this.kickSynth.volume.value = -4;
+        this.hatSynth = new Tone.NoiseSynth({
+            noise: { type: 'white' },
+            envelope: { attack: 0.001, decay: 0.06, sustain: 0, release: 0.02 }
+        }).connect(this.limiter);
+        this.hatSynth.volume.value = -8;
         this.pluckSynth = { releaseAll: () => {} };
 
         // === SUB-BASS ===
@@ -368,14 +368,13 @@ export class MusicManager {
 
         // INDEX: No effect (square/volume finger — fully independent)
 
-        // === MIDDLE: Root note + FM Screamer ===
-        // Distance: 0 = clean subtle tone, 1 = insane FM screech
-        // This is the PRIMARY melodic finger — root note trigger + continuous FM chaos
+        // === MIDDLE (ROOT): 303 Acid Squelch ===
+        // Distance = filter cutoff. Close=dark rumble, extended=screaming acid.
+        if (this._acidFilter) {
+            this._acidFilter.frequency.value = 200 + Math.pow(d.middle, 2) * 10000;
+            this._acidFilter.Q.value = 6 + d.middle * 12;
+        }
         if (this.fingerSynths.middle) {
-            try {
-                this.fingerSynths.middle.modulationIndex.value = 0.5 + Math.pow(d.middle, 1.5) * 50;
-                this.fingerSynths.middle.harmonicity.value = 2 + d.middle * 12;
-            } catch(e) {}
             if (prevExt.middle < 0.2 && d.middle > 0.35 && (now - cooldowns.middle) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.middle = now;
                 this.fingerSynths.middle.triggerAttackRelease(
@@ -383,50 +382,53 @@ export class MusicManager {
                 );
             }
         }
-        if (this._middleFilter) {
-            this._middleFilter.frequency.value = 400 + Math.pow(d.middle, 2) * 8000;
-            this._middleFilter.Q.value = 2 + d.middle * 10;
-        }
         if (this.middleContinuous) {
-            try {
-                this.middleContinuous.modulationIndex.value = 0.1 + Math.pow(d.middle, 2) * 20;
-                this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.05);
-            } catch(e) {}
+            this.middleContinuous.volume.rampTo(-30 + d.middle * 18, 0.05);
         }
 
-        // === RING: Crystal Shimmer ===
-        // Distance: 0 = silence, 1 = bright shimmering bells + lush reverb tail
-        // Completely different from middle — metallic/bell tones through long reverb
+        // === RING (5th): Goa Pluck ===
+        // Distance = delay feedback + reverb wet. Close=dry tap, extended=echoing cascade
         if (this.fingerSynths.ring) {
             if (prevExt.ring < 0.2 && d.ring > 0.35 && (now - cooldowns.ring) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.ring = now;
-                const chimeFreq = rootFreq * Math.pow(2, 7/12);
-                this.fingerSynths.ring.triggerAttackRelease(chimeFreq, '4n', Tone.now(), 0.7 + d.ring * 0.3);
+                const pluckFreq = rootFreq * Math.pow(2, 7/12); // perfect 5th
+                this.fingerSynths.ring.triggerAttackRelease(
+                    Tone.Frequency(pluckFreq).toNote(), '16n', Tone.now(), 0.7 + d.ring * 0.3
+                );
             }
         }
+        if (this._pluckDelay) {
+            this._pluckDelay.feedback.value = 0.2 + d.ring * 0.45;
+            this._pluckDelay.wet.value = 0.1 + d.ring * 0.5;
+        }
         if (this._shimmerReverb) {
-            this._shimmerReverb.wet.value = 0.3 + d.ring * 0.7;
+            this._shimmerReverb.wet.value = 0.2 + d.ring * 0.6;
         }
         if (this.ringContinuous) {
-            // High triangle drone that swells with ring distance
-            this.ringContinuous.volume.rampTo(-35 + d.ring * 20, 0.05);
+            this.ringContinuous.volume.rampTo(-35 + d.ring * 18, 0.05);
         }
 
-        // === PINKY: Sub Cannon + Distortion ===
-        // Distance: 0 = clean silence, 1 = massive distorted sub bass earthquake
-        // Completely different from ring — LOW and DIRTY vs ring's HIGH and CLEAN
+        // === PINKY (m7): FM Laser Zap ===
+        // Distance = FM depth + distortion. Close=subtle ping, extended=full laser blast
         if (this.fingerSynths.pinky) {
+            try {
+                this.fingerSynths.pinky.modulationIndex.value = 2 + Math.pow(d.pinky, 1.5) * 35;
+                this.fingerSynths.pinky.harmonicity.value = 4 + d.pinky * 8;
+            } catch(e) {}
             if (prevExt.pinky < 0.2 && d.pinky > 0.35 && (now - cooldowns.pinky) > this.FINGER_COOLDOWN_MS) {
                 cooldowns.pinky = now;
-                this.fingerSynths.pinky.triggerAttackRelease('C1', '2n', Tone.now(), 0.9);
+                const zapFreq = rootFreq * Math.pow(2, 10/12); // minor 7th
+                this.fingerSynths.pinky.triggerAttackRelease(
+                    Tone.Frequency(zapFreq).toNote(), '8n', Tone.now(), 0.9
+                );
             }
         }
         if (this.distortion) {
-            this.distortion.distortion = Math.pow(d.pinky, 1.5) * 0.8;
-            this.distortion.wet.value = d.pinky * 0.7;
+            this.distortion.distortion = Math.pow(d.pinky, 1.5) * 0.6;
+            this.distortion.wet.value = d.pinky * 0.5;
         }
         if (this.pinkyContinuous) {
-            this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 22, 0.05);
+            this.pinkyContinuous.volume.rampTo(-35 + d.pinky * 20, 0.05);
         }
 
         // === WRIST ANGLE: Massive tonal modulation ===
@@ -534,60 +536,42 @@ export class MusicManager {
         }
 
         // =====================================================================
-        // GLITCH-HOP TEXTURES — finger distance = repeat rate + character
-        // Slower BPM range, randomized params per hit, organic not mechanical
-        // Middle=blip, Ring=grain, Pinky=wash, Thumb=zap trigger
+        // DRUM SAMPLES — finger distance = repeat rate (BPM)
+        // Middle=KICK, Ring=HIHAT, Pinky=CLAP
         // =====================================================================
 
         const DEAD_ZONE = 0.12;
-        const MIN_BPM = 50;   // slow groove
-        const MAX_BPM = 180;  // glitch-hop fast, not machine-gun
+        const MIN_BPM = 50;
+        const MAX_BPM = 200;
 
         const distToInterval = (dist) => {
             if (dist < DEAD_ZONE) return Infinity;
             const t = (dist - DEAD_ZONE) / (1 - DEAD_ZONE);
-            const bpm = MIN_BPM + Math.pow(t, 1.5) * (MAX_BPM - MIN_BPM); // exponential curve
+            const bpm = MIN_BPM + Math.pow(t, 1.3) * (MAX_BPM - MIN_BPM);
             return 60000 / bpm;
         };
 
-        // Random helper
-        const rnd = (min, max) => min + Math.random() * (max - min);
+        if (this._drumPlayersLoaded) {
+            // --- MIDDLE: KICK ---
+            const kickInterval = distToInterval(d.middle);
+            if (kickInterval < Infinity && (now - this._drumBeatTimers.kick) > kickInterval) {
+                this._drumBeatTimers.kick = now;
+                try { this.drumPlayers.player('kick').start(Tone.now()); } catch(e) {}
+            }
 
-        // --- MIDDLE: Glitch Blip — random pitch each hit, melodic texture ---
-        const blipInterval = distToInterval(d.middle);
-        if (blipInterval < Infinity && (now - this._drumBeatTimers.blip) > blipInterval) {
-            this._drumBeatTimers.blip = now;
-            try {
-                // Random pitch from a pentatonic set, octave varies with distance
-                const baseNotes = [60, 63, 65, 67, 70, 72, 75, 77]; // C minor pentatonic MIDI
-                const note = baseNotes[Math.floor(Math.random() * baseNotes.length)];
-                const octaveShift = Math.floor(d.middle * 3) * 12; // higher octaves when extended
-                const freq = Tone.Frequency(note + octaveShift, 'midi').toFrequency();
-                this._glitchBlip.triggerAttackRelease(freq, '64n', Tone.now(), 0.5 + d.middle * 0.4);
-            } catch(e) {}
-        }
+            // --- RING: HIHAT ---
+            const hihatInterval = distToInterval(d.ring);
+            if (hihatInterval < Infinity && (now - this._drumBeatTimers.hihat) > hihatInterval) {
+                this._drumBeatTimers.hihat = now;
+                try { this.drumPlayers.player('hihat').start(Tone.now()); } catch(e) {}
+            }
 
-        // --- RING: Filtered Grain — random filter freq, organic texture ---
-        const grainInterval = distToInterval(d.ring);
-        if (grainInterval < Infinity && (now - this._drumBeatTimers.grain) > grainInterval) {
-            this._drumBeatTimers.grain = now;
-            try {
-                // Randomize filter frequency each hit for organic character
-                this._grainFilter.frequency.value = rnd(800, 6000 + d.ring * 8000);
-                this._grainFilter.Q.value = rnd(4, 15);
-                this._grainSynth.triggerAttackRelease('64n', Tone.now(), 0.4 + d.ring * 0.4);
-            } catch(e) {}
-        }
-
-        // --- PINKY: Textured Wash — evolving filtered noise, not clappy ---
-        const washInterval = distToInterval(d.pinky);
-        if (washInterval < Infinity && (now - this._drumBeatTimers.wash) > washInterval) {
-            this._drumBeatTimers.wash = now;
-            try {
-                // Sweep filter with each hit, randomized
-                this._washFilter.frequency.value = rnd(500, 4000 + d.pinky * 5000);
-                this._washSynth.triggerAttackRelease('16n', Tone.now(), 0.3 + d.pinky * 0.4);
-            } catch(e) {}
+            // --- PINKY: CLAP ---
+            const clapInterval = distToInterval(d.pinky);
+            if (clapInterval < Infinity && (now - this._drumBeatTimers.clap) > clapInterval) {
+                this._drumBeatTimers.clap = now;
+                try { this.drumPlayers.player('clap').start(Tone.now()); } catch(e) {}
+            }
         }
 
         // --- THUMB: Glitch zap on extend ---
@@ -595,21 +579,19 @@ export class MusicManager {
             if (prevExt.thumb < 0.2 && d.thumb > 0.35 && (now - (cooldowns.thumb || 0)) > 200) {
                 cooldowns.thumb = now;
                 const zapNote = ['C4','E4','G4','Bb4'][Math.floor(Math.random() * 4)];
-                try {
-                    this.drumThumbSynth.triggerAttackRelease(zapNote, '64n', Tone.now(), 0.7);
-                } catch(e) {}
+                try { this.drumThumbSynth.triggerAttackRelease(zapNote, '64n', Tone.now(), 0.7); } catch(e) {}
             }
         }
 
-        // === WRIST ANGLE: shifts glitch character ===
+        // === WRIST ANGLE: boosts drum volume when tilted ===
         const drumWristAngle = gestureData.wristAngle || 0;
         const drumAbsAngle = Math.abs(drumWristAngle);
-        // Tilt darkens the grain filter and lengthens wash
-        if (this._grainFilter) {
-            this._grainFilter.frequency.value *= (1 - drumAbsAngle * 0.5);
-        }
-        if (this._washFilter) {
-            this._washFilter.Q.value = 2 + drumAbsAngle * 8;
+        if (this._drumPlayersLoaded) {
+            try {
+                this.drumPlayers.player('kick').volume.value = 0 + drumAbsAngle * 4;
+                this.drumPlayers.player('hihat').volume.value = -2 + drumAbsAngle * 4;
+                this.drumPlayers.player('clap').volume.value = 0 + drumAbsAngle * 4;
+            } catch(e) {}
         }
 
         for (const f of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
@@ -771,7 +753,7 @@ export class MusicManager {
         this._continuousActive = false;
 
         // Reset glitch beat timers
-        this._drumBeatTimers = { blip: 0, grain: 0, wash: 0 };
+        this._drumBeatTimers = { kick: 0, hihat: 0, clap: 0 };
 
         if (this.fingerSynths) {
             for (const finger of ['index', 'middle', 'ring', 'pinky']) {

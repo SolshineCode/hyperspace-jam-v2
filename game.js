@@ -1519,9 +1519,9 @@ export var Game = /*#__PURE__*/ function() {
                         var fingerStates = controlData.fingerStates;
                         // Per-finger drum labels at each fingertip
                         var drumFingers = [
-                            { idx: 12, finger: 'middle', drum: 'BLIP' },
-                            { idx: 16, finger: 'ring', drum: 'GRAIN' },
-                            { idx: 20, finger: 'pinky', drum: 'WASH' }
+                            { idx: 12, finger: 'middle', drum: 'KICK' },
+                            { idx: 16, finger: 'ring', drum: 'HIHAT' },
+                            { idx: 20, finger: 'pinky', drum: 'CLAP' }
                         ];
                         for (var df = 0; df < drumFingers.length; df++) {
                             var dfp = points3D[drumFingers[df].idx];
