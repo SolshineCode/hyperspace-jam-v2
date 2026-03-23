@@ -2,55 +2,138 @@ export class DisplacementFilter {
     constructor(rendererCanvas, videoElement) {
         this.canvas = rendererCanvas;
         this.video = videoElement;
-        this.enabled = true; // ON by default — trippy from the start
+        this.enabled = true;
         this.time = 0;
+
+        // Create SVG turbulence filter for real per-pixel displacement
+        this._createTurbulenceSVG();
+    }
+
+    _createTurbulenceSVG() {
+        // SVG filter = web equivalent of After Effects "Turbulent Displace"
+        var svgNS = 'http://www.w3.org/2000/svg';
+        this.svg = document.createElementNS(svgNS, 'svg');
+        this.svg.setAttribute('width', '0');
+        this.svg.setAttribute('height', '0');
+        this.svg.style.position = 'absolute';
+
+        var defs = document.createElementNS(svgNS, 'defs');
+
+        // Filter for the webcam video
+        var filter = document.createElementNS(svgNS, 'filter');
+        filter.setAttribute('id', 'turbulence-displace');
+        filter.setAttribute('x', '-10%');
+        filter.setAttribute('y', '-10%');
+        filter.setAttribute('width', '120%');
+        filter.setAttribute('height', '120%');
+
+        // feTurbulence = generates Perlin noise pattern
+        // "Evolution" = seed, animated over time
+        // "Amount" = scale parameter in feDisplacementMap
+        this.turbulence = document.createElementNS(svgNS, 'feTurbulence');
+        this.turbulence.setAttribute('type', 'fractalNoise');
+        this.turbulence.setAttribute('baseFrequency', '0.008 0.006'); // Size (lower = larger swirls)
+        this.turbulence.setAttribute('numOctaves', '3');
+        this.turbulence.setAttribute('seed', '0'); // Will animate this = "Evolution"
+        this.turbulence.setAttribute('result', 'noise');
+
+        // feDisplacementMap = displaces pixels based on the noise
+        this.displacement = document.createElementNS(svgNS, 'feDisplacementMap');
+        this.displacement.setAttribute('in', 'SourceGraphic');
+        this.displacement.setAttribute('in2', 'noise');
+        this.displacement.setAttribute('scale', '12'); // Amount — subtle but visible
+        this.displacement.setAttribute('xChannelSelector', 'R');
+        this.displacement.setAttribute('yChannelSelector', 'G');
+
+        filter.appendChild(this.turbulence);
+        filter.appendChild(this.displacement);
+        defs.appendChild(filter);
+
+        // Second filter for the Three.js canvas (slightly different params)
+        var filter2 = document.createElementNS(svgNS, 'filter');
+        filter2.setAttribute('id', 'turbulence-canvas');
+        filter2.setAttribute('x', '-10%');
+        filter2.setAttribute('y', '-10%');
+        filter2.setAttribute('width', '120%');
+        filter2.setAttribute('height', '120%');
+
+        this.turbulence2 = document.createElementNS(svgNS, 'feTurbulence');
+        this.turbulence2.setAttribute('type', 'fractalNoise');
+        this.turbulence2.setAttribute('baseFrequency', '0.005 0.004');
+        this.turbulence2.setAttribute('numOctaves', '2');
+        this.turbulence2.setAttribute('seed', '42');
+        this.turbulence2.setAttribute('result', 'noise');
+
+        this.displacement2 = document.createElementNS(svgNS, 'feDisplacementMap');
+        this.displacement2.setAttribute('in', 'SourceGraphic');
+        this.displacement2.setAttribute('in2', 'noise');
+        this.displacement2.setAttribute('scale', '8');
+        this.displacement2.setAttribute('xChannelSelector', 'R');
+        this.displacement2.setAttribute('yChannelSelector', 'G');
+
+        filter2.appendChild(this.turbulence2);
+        filter2.appendChild(this.displacement2);
+        defs.appendChild(filter2);
+
+        this.svg.appendChild(defs);
+        document.body.appendChild(this.svg);
+
+        // Apply filters
+        this.video.style.filter += ' url(#turbulence-displace)';
+        this.canvas.style.filter = 'url(#turbulence-canvas)';
     }
 
     toggle() {
         this.enabled = !this.enabled;
         if (!this.enabled) {
+            this.canvas.style.filter = '';
             this.canvas.style.transform = '';
+            this.video.style.filter = '';
             this.video.style.transform = 'scaleX(-1)';
+        } else {
+            this.video.style.filter = 'url(#turbulence-displace)';
+            this.canvas.style.filter = 'url(#turbulence-canvas)';
         }
-        console.log('Displacement filter: ' + (this.enabled ? 'ON' : 'OFF'));
+        console.log('Turbulence displacement: ' + (this.enabled ? 'ON' : 'OFF'));
     }
 
     update(amplitude) {
         if (!this.enabled) return;
         this.time += 0.016;
 
-        // Use a minimum baseline so effects are visible even without loud audio
-        var amp = Math.max(0.3, amplitude || 0);
+        var amp = Math.max(0.15, amplitude || 0);
 
-        // Breathing scale — always visible, boosted by audio
-        var breathScale = 1.0 + 0.03 * Math.sin(this.time * 1.2);
-        var ampScale = 1.0 + amp * 0.04;
-        var totalScale = breathScale * ampScale;
+        // Animate "Evolution" — change the noise seed over time
+        // This is the key: the noise pattern evolves slowly, creating organic movement
+        var seed = Math.floor(this.time * 2) % 1000;
+        this.turbulence.setAttribute('seed', String(seed));
+        this.turbulence2.setAttribute('seed', String(seed + 500));
 
-        // Wobble skew — trippy warping
-        var skewX = Math.sin(this.time * 0.7) * (1.0 + amp * 3.0);
-        var skewY = Math.cos(this.time * 0.9) * (0.6 + amp * 2.0);
+        // Animate "Offset Turbulence" — shift the noise pattern's base frequency
+        // Subtle variation creates the "breathing" organic feel
+        var freqX = 0.008 + Math.sin(this.time * 0.3) * 0.003;
+        var freqY = 0.006 + Math.cos(this.time * 0.25) * 0.002;
+        this.turbulence.setAttribute('baseFrequency', freqX + ' ' + freqY);
 
-        // Wave translation — scene drifts
-        var waveX = Math.sin(this.time * 1.3) * (2.0 + amp * 6.0);
-        var waveY = Math.cos(this.time * 1.0) * (1.5 + amp * 4.0);
+        // Audio-reactive Amount — displacement scale increases with amplitude
+        var videoScale = 10 + amp * 15; // 10-25 range (subtle to moderate)
+        var canvasScale = 6 + amp * 12;  // 6-18 range
+        this.displacement.setAttribute('scale', String(videoScale));
+        this.displacement2.setAttribute('scale', String(canvasScale));
 
-        // Three.js canvas
-        this.canvas.style.transform =
-            'scale(' + totalScale + ') ' +
-            'skew(' + skewX + 'deg, ' + skewY + 'deg) ' +
-            'translate(' + waveX + 'px, ' + waveY + 'px)';
-
-        // Video (matching but inverted skew for trippy desync)
-        this.video.style.transform =
-            'scaleX(-1) ' +
-            'scale(' + totalScale + ') ' +
-            'skew(' + (-skewX * 0.7) + 'deg, ' + (-skewY * 0.7) + 'deg) ' +
-            'translate(' + (waveX * 0.6) + 'px, ' + (waveY * 0.6) + 'px)';
+        // Gentle CSS transform for additional macro-movement
+        var breathScale = 1.0 + 0.008 * Math.sin(this.time * 0.8);
+        this.canvas.style.transform = 'scale(' + breathScale + ')';
+        this.video.style.transform = 'scaleX(-1) scale(' + breathScale + ')';
     }
 
     dispose() {
+        this.canvas.style.filter = '';
         this.canvas.style.transform = '';
+        this.video.style.filter = '';
         this.video.style.transform = 'scaleX(-1)';
+        if (this.svg && this.svg.parentNode) {
+            this.svg.parentNode.removeChild(this.svg);
+        }
     }
 }

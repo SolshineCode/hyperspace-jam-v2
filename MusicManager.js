@@ -6,6 +6,7 @@ export class MusicManager {
     constructor() {
         // Synths
         this.padSynths = new Map();      // handId -> Tone.Synth (sustained drone)
+        this.activePatterns = this.padSynths; // backward compat — game.js checks .activePatterns.has(i)
         this.pluckSynth = null;          // shared PluckSynth for finger triggers
         this.kickSynth = null;           // MembraneSynth for downward hits
         this.hatSynth = null;            // NoiseSynth for sideways hits
