@@ -94,9 +94,9 @@ export class MusicManager {
 
         // --- Layer 2: Pluck Synth (warm, harmonic, overlapping notes) ---
         this.pluckSynth = new Tone.PolySynth(Tone.FMSynth, {
-            maxPolyphony: 12,
+            maxPolyphony: 10,
             harmonicity: 2,          // octave relationship = consonant
-            modulationIndex: 6,      // gentler FM = warmer tone
+            modulationIndex: 3,      // very gentle FM = clean warm tone, no artifacts
             oscillator: { type: 'sine' },
             envelope: {
                 attack: 0.003,
@@ -348,23 +348,21 @@ export class MusicManager {
     // --- Proximity Filter ---
 
     setProximityFilter(value) {
-        // value: 0 = far (dry/bright), 1 = close (wet/dark/filtered)
-        // DRAMATIC sweep — should be very obvious
+        // value: 0 = far (dry/bright), 1 = close (wet/warm)
+        // Gentle, musical sweep — noticeable but not harsh
         if (this.filter) {
-            // Sweep lowpass cutoff: 18000 Hz (far/bright) down to 300 Hz (close/muffled)
-            var cutoff = 18000 * Math.pow(0.016, value); // exponential for musical response
-            this.filter.frequency.rampTo(cutoff, 0.08);
+            // Sweep lowpass: 16000 Hz (far) down to 1200 Hz (close) — not as extreme
+            var cutoff = 16000 * Math.pow(0.075, value);
+            this.filter.frequency.rampTo(cutoff, 0.2); // slower ramp = smoother
         }
         if (this.reverb) {
-            // More reverb when close (0.3 far → 0.85 close)
-            this.reverb.wet.value = 0.3 + value * 0.55;
+            this.reverb.wet.value = 0.3 + value * 0.3; // 0.3-0.6 (was 0.3-0.85)
         }
         if (this.delay) {
-            // More delay when close (0.1 far → 0.5 close)
-            this.delay.wet.value = 0.1 + value * 0.4;
+            this.delay.wet.value = 0.15 + value * 0.2; // 0.15-0.35 (was 0.1-0.5)
         }
         if (this.chorus) {
-            this.chorus.depth = 0.2 + value * 0.8;
+            this.chorus.depth = 0.4 + value * 0.4;
         }
     }
 
