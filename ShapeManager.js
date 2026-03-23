@@ -15,21 +15,21 @@ export class ShapeManager {
         // Internal tessellation
         this.tessellationMesh = null;
         this.tessellationMaterial = null;
-        this.shapeFormedTime = 0; // when current closed shape first formed
+        this.shapeFormedTime = 0;
         this.lastShapeType = 'none';
         this.tessellationActive = false;
 
-        this.PINCH_THRESHOLD = 40; // pixels screen space
+        this.PINCH_THRESHOLD = 30; // pixels screen space
         this.SMOOTH_FACTOR = 0.3;
-        this.FADE_DURATION = 200; // ms
+        this.FADE_DURATION = 150; // ms
     }
 
     update(handsData, canvasWidth, canvasHeight) {
-        var now = performance.now();
+        const now = performance.now();
 
         // --- Clear previous frame geometry ---
         while (this.group.children.length) {
-            var child = this.group.children[0];
+            const child = this.group.children[0];
             this.group.remove(child);
             if (child.geometry) child.geometry.dispose();
             if (child.material) child.material.dispose();
@@ -37,57 +37,99 @@ export class ShapeManager {
 
         if (!handsData) handsData = [];
 
-        // --- Detect pinches and compute raw anchors ---
-        var rawAnchors = [];
-        for (var h = 0; h < handsData.length; h++) {
-            var points3D = handsData[h];
+        // --- Detect anchors from each hand ---
+        const rawAnchors = [];
+
+        for (let h = 0; h < handsData.length; h++) {
+            const points3D = handsData[h];
             if (!points3D || points3D.length < 21) continue;
 
-            var thumb = points3D[4];
-            var index = points3D[8];
-            var dx = thumb.x - index.x;
-            var dy = thumb.y - index.y;
-            var dist = Math.sqrt(dx * dx + dy * dy);
+            const thumbTip = points3D[4];
+            const indexTip = points3D[8];
+            const middleTip = points3D[12];
+            const middleDip = points3D[10]; // for extension check
 
-            if (dist < this.PINCH_THRESHOLD) {
-                // Compute average z across all landmarks for depth
-                var avgZ = 0;
-                for (var l = 0; l < 21; l++) {
-                    avgZ += points3D[l].z;
-                }
-                avgZ /= 21;
+            // Compute average z across all landmarks for depth
+            let avgZ = 0;
+            for (let l = 0; l < 21; l++) {
+                avgZ += points3D[l].z;
+            }
+            avgZ /= 21;
 
+            // Distance between thumb and index
+            const dx = thumbTip.x - indexTip.x;
+            const dy = thumbTip.y - indexTip.y;
+            const thumbIndexDist = Math.sqrt(dx * dx + dy * dy);
+
+            // Check if middle finger is extended (tip significantly above dip in y)
+            // In screen coords, "above" means smaller y if y=0 is top, but MediaPipe
+            // gives y increasing downward. Extended = tip.y < dip.y (tip is higher up).
+            // Use a threshold to avoid noise.
+            const middleExtended = (middleDip.y - middleTip.y) > 15;
+
+            if (thumbIndexDist < this.PINCH_THRESHOLD) {
+                // PINCHING — thumb+index merge into 1 anchor at midpoint
                 rawAnchors.push({
                     position: new THREE.Vector3(
-                        (thumb.x + index.x) / 2,
-                        (thumb.y + index.y) / 2,
+                        (thumbTip.x + indexTip.x) / 2,
+                        (thumbTip.y + indexTip.y) / 2,
                         0
                     ),
-                    handIndex: h,
-                    avgZ: avgZ
+                    id: `h${h}_pinch`,
+                    avgZ
                 });
+
+                // If middle finger extended while pinching, add it as a 2nd anchor
+                if (middleExtended) {
+                    rawAnchors.push({
+                        position: new THREE.Vector3(middleTip.x, middleTip.y, 0),
+                        id: `h${h}_middle`,
+                        avgZ
+                    });
+                }
+            } else {
+                // NOT PINCHING — thumb and index are separate anchors
+                rawAnchors.push({
+                    position: new THREE.Vector3(thumbTip.x, thumbTip.y, 0),
+                    id: `h${h}_thumb`,
+                    avgZ
+                });
+                rawAnchors.push({
+                    position: new THREE.Vector3(indexTip.x, indexTip.y, 0),
+                    id: `h${h}_index`,
+                    avgZ
+                });
+
+                // If middle finger extended, add it too
+                if (middleExtended) {
+                    rawAnchors.push({
+                        position: new THREE.Vector3(middleTip.x, middleTip.y, 0),
+                        id: `h${h}_middle`,
+                        avgZ
+                    });
+                }
             }
         }
 
-        // --- Match raw anchors to existing anchors by hand index ---
-        var matchedIndices = new Set();
-        var newAnchors = [];
+        // --- Match raw anchors to existing anchors by id ---
+        const matchedIds = new Set();
+        const newAnchors = [];
 
-        for (var r = 0; r < rawAnchors.length; r++) {
-            var raw = rawAnchors[r];
-            var found = false;
+        for (let r = 0; r < rawAnchors.length; r++) {
+            const raw = rawAnchors[r];
+            let found = false;
 
-            for (var a = 0; a < this.anchors.length; a++) {
-                if (matchedIndices.has(a)) continue;
-                if (this.anchors[a].handIndex === raw.handIndex) {
+            for (let a = 0; a < this.anchors.length; a++) {
+                if (matchedIds.has(this.anchors[a].id)) continue;
+                if (this.anchors[a].id === raw.id) {
                     // Update existing anchor with smoothing
-                    var anchor = this.anchors[a];
+                    const anchor = this.anchors[a];
                     anchor.smoothed.x += (raw.position.x - anchor.smoothed.x) * this.SMOOTH_FACTOR;
                     anchor.smoothed.y += (raw.position.y - anchor.smoothed.y) * this.SMOOTH_FACTOR;
                     anchor.depthScale = this._computeDepthScale(raw.avgZ);
                     anchor.avgZ = raw.avgZ;
                     newAnchors.push(anchor);
-                    matchedIndices.add(a);
+                    matchedIds.add(anchor.id);
                     found = true;
                     break;
                 }
@@ -95,10 +137,9 @@ export class ShapeManager {
 
             if (!found) {
                 // New anchor — birth it
-                var smoothed = raw.position.clone();
                 newAnchors.push({
-                    smoothed: smoothed,
-                    handIndex: raw.handIndex,
+                    smoothed: raw.position.clone(),
+                    id: raw.id,
                     birthTime: now,
                     depthScale: this._computeDepthScale(raw.avgZ),
                     avgZ: raw.avgZ
@@ -107,9 +148,9 @@ export class ShapeManager {
         }
 
         // Anchors that disappeared — move to fading
-        for (var a = 0; a < this.anchors.length; a++) {
-            if (!matchedIndices.has(a)) {
-                var dying = this.anchors[a];
+        for (let a = 0; a < this.anchors.length; a++) {
+            if (!matchedIds.has(this.anchors[a].id)) {
+                const dying = this.anchors[a];
                 dying.fadeStartTime = now;
                 this.fadingAnchors.push(dying);
             }
@@ -118,29 +159,27 @@ export class ShapeManager {
         this.anchors = newAnchors;
 
         // --- Update fading anchors, remove expired ---
-        this.fadingAnchors = this.fadingAnchors.filter(function(fa) {
-            return (now - fa.fadeStartTime) < 200;
-        });
+        this.fadingAnchors = this.fadingAnchors.filter(fa => (now - fa.fadeStartTime) < this.FADE_DURATION);
 
         // --- Determine shape type ---
-        var activeCount = this.anchors.length;
-        var shapeType = 'none';
+        const activeCount = this.anchors.length;
+        let shapeType = 'none';
         if (activeCount === 2) shapeType = 'line';
         else if (activeCount === 3) shapeType = 'triangle';
         else if (activeCount >= 4) shapeType = 'quad';
 
         // --- Render active anchor nodes ---
-        for (var i = 0; i < this.anchors.length; i++) {
-            var anc = this.anchors[i];
-            var age = now - anc.birthTime;
-            var fadeIn = Math.min(1, age / this.FADE_DURATION);
+        for (let i = 0; i < this.anchors.length; i++) {
+            const anc = this.anchors[i];
+            const age = now - anc.birthTime;
+            const fadeIn = Math.min(1, age / this.FADE_DURATION);
             this._drawNode(anc.smoothed, anc.depthScale, fadeIn);
         }
 
         // --- Render fading anchor nodes ---
-        for (var i = 0; i < this.fadingAnchors.length; i++) {
-            var fa = this.fadingAnchors[i];
-            var fadeOut = 1 - Math.min(1, (now - fa.fadeStartTime) / this.FADE_DURATION);
+        for (let i = 0; i < this.fadingAnchors.length; i++) {
+            const fa = this.fadingAnchors[i];
+            const fadeOut = 1 - Math.min(1, (now - fa.fadeStartTime) / this.FADE_DURATION);
             this._drawNode(fa.smoothed, fa.depthScale, fadeOut);
         }
 
@@ -151,27 +190,23 @@ export class ShapeManager {
 
         // --- Internal tessellation for closed shapes ---
         if (shapeType === 'triangle' || shapeType === 'quad') {
-            // Track when this shape type first formed
             if (shapeType !== this.lastShapeType) {
                 this.shapeFormedTime = now;
                 this.lastShapeType = shapeType;
                 this.tessellationActive = false;
             }
 
-            // Activate tessellation after 200ms hold
             if (!this.tessellationActive && (now - this.shapeFormedTime) > 200) {
                 this.tessellationActive = true;
                 this._createTessellationMesh(canvasWidth, canvasHeight);
             }
 
-            // Update tessellation uniforms each frame
             if (this.tessellationActive && this.tessellationMaterial) {
                 this.tessellationMaterial.uniforms.u_time.value = now * 0.001;
                 this.tessellationMaterial.uniforms.u_vertexCount.value = (shapeType === 'triangle') ? 3 : 4;
                 this.tessellationMaterial.uniforms.u_resolution.value.set(canvasWidth, canvasHeight);
 
-                // Pass anchor positions as normalized [-1, 1] coordinates
-                for (var v = 0; v < 4; v++) {
+                for (let v = 0; v < 4; v++) {
                     if (v < this.anchors.length) {
                         this.tessellationMaterial.uniforms.u_vertices.value[v].set(
                             this.anchors[v].smoothed.x / (canvasWidth / 2),
@@ -181,7 +216,6 @@ export class ShapeManager {
                 }
             }
         } else {
-            // Shape dissolved — remove tessellation
             if (this.tessellationActive) {
                 this._removeTessellationMesh();
                 this.tessellationActive = false;
@@ -191,136 +225,164 @@ export class ShapeManager {
     }
 
     _computeDepthScale(avgZ) {
-        // Map z from [-0.15, 0] to [2.5, 0.6]
-        var t = Math.max(0, Math.min(1, (avgZ - (-0.15)) / (0 - (-0.15))));
-        return 2.5 + t * (0.6 - 2.5); // lerp from 2.5 to 0.6
+        // Map z from [-0.2, 0] to [3.0, 0.5] (DRAMATIC range)
+        const t = Math.max(0, Math.min(1, (avgZ - (-0.2)) / (0 - (-0.2))));
+        return 3.0 + t * (0.5 - 3.0); // lerp from 3.0 (close) to 0.5 (far)
     }
 
     _drawNode(position, depthScale, opacity) {
-        var z = 1.8;
-        var baseOuter = 6 * depthScale;
-        var baseInner = 8 * depthScale;
-        var dotRadius = 2 * depthScale;
+        const z = 3; // In FRONT of everything
+        const outerSize = 20 * depthScale;
+        const dotRadius = 4 * depthScale;
 
-        // Outer ring (square-ish with 4 segments)
-        var ringGeom = new THREE.RingGeometry(baseOuter, baseInner, 4);
-        var ringMat = new THREE.MeshBasicMaterial({
+        // Outer square: PlaneGeometry rotated 45deg, white
+        const squareGeom = new THREE.PlaneGeometry(outerSize, outerSize);
+        const squareMat = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
             opacity: opacity,
             depthTest: false,
             side: THREE.DoubleSide
         });
-        var ringMesh = new THREE.Mesh(ringGeom, ringMat);
-        ringMesh.position.set(position.x, position.y, z);
-        this.group.add(ringMesh);
+        const squareMesh = new THREE.Mesh(squareGeom, squareMat);
+        squareMesh.position.set(position.x, position.y, z);
+        squareMesh.rotation.z = Math.PI / 4; // 45 degrees
+        this.group.add(squareMesh);
 
-        // Inner dot
-        var dotGeom = new THREE.CircleGeometry(dotRadius, 8);
-        var dotMat = new THREE.MeshBasicMaterial({
+        // Inner dot: CircleGeometry
+        const dotGeom = new THREE.CircleGeometry(dotRadius, 16);
+        const dotMat = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
             opacity: opacity,
             depthTest: false,
             side: THREE.DoubleSide
         });
-        var dotMesh = new THREE.Mesh(dotGeom, dotMat);
-        dotMesh.position.set(position.x, position.y, z);
+        const dotMesh = new THREE.Mesh(dotGeom, dotMat);
+        dotMesh.position.set(position.x, position.y, z + 0.01);
         this.group.add(dotMesh);
     }
 
     _drawEdges(shapeType, now) {
-        var z = 1.7;
-        var anchors = this.anchors;
+        const z = 3;
+        const anchors = this.anchors;
 
         // Compute min opacity from birth fades
-        var minOpacity = 1;
-        for (var i = 0; i < anchors.length; i++) {
-            var age = now - anchors[i].birthTime;
-            var fade = Math.min(1, age / this.FADE_DURATION);
+        let minOpacity = 1;
+        for (let i = 0; i < anchors.length; i++) {
+            const age = now - anchors[i].birthTime;
+            const fade = Math.min(1, age / this.FADE_DURATION);
             if (fade < minOpacity) minOpacity = fade;
         }
 
-        // Average depth scale for edge opacity
-        var avgDepth = 0;
-        for (var i = 0; i < anchors.length; i++) {
-            avgDepth += anchors[i].depthScale;
+        // Average depth scale for edge width
+        let avgDepthScale = 0;
+        for (let i = 0; i < anchors.length; i++) {
+            avgDepthScale += anchors[i].depthScale;
         }
-        avgDepth /= anchors.length;
-        var edgeOpacity = minOpacity * Math.min(1, avgDepth / 2.5);
+        avgDepthScale /= anchors.length;
 
-        var lineMat = new THREE.LineBasicMaterial({
+        const edgeWidth = 4 * avgDepthScale;
+
+        // Build edge pairs
+        const edges = [];
+        if (shapeType === 'line') {
+            // Two parallel lines offset ±3px perpendicular
+            const a = anchors[0].smoothed;
+            const b = anchors[1].smoothed;
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 0.001) return;
+            const nx = -dy / len * 3;
+            const ny = dx / len * 3;
+
+            edges.push([
+                new THREE.Vector3(a.x + nx, a.y + ny, z),
+                new THREE.Vector3(b.x + nx, b.y + ny, z)
+            ]);
+            edges.push([
+                new THREE.Vector3(a.x - nx, a.y - ny, z),
+                new THREE.Vector3(b.x - nx, b.y - ny, z)
+            ]);
+        } else if (shapeType === 'triangle') {
+            for (let i = 0; i < 3; i++) {
+                const j = (i + 1) % 3;
+                edges.push([
+                    new THREE.Vector3(anchors[i].smoothed.x, anchors[i].smoothed.y, z),
+                    new THREE.Vector3(anchors[j].smoothed.x, anchors[j].smoothed.y, z)
+                ]);
+            }
+        } else if (shapeType === 'quad') {
+            const count = Math.min(anchors.length, 4);
+            for (let i = 0; i < count; i++) {
+                const j = (i + 1) % count;
+                edges.push([
+                    new THREE.Vector3(anchors[i].smoothed.x, anchors[i].smoothed.y, z),
+                    new THREE.Vector3(anchors[j].smoothed.x, anchors[j].smoothed.y, z)
+                ]);
+            }
+        }
+
+        // Render each edge as a mesh ribbon (PlaneGeometry quad)
+        const edgeMat = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: edgeOpacity,
+            opacity: minOpacity,
             depthTest: false,
-            linewidth: 2
+            side: THREE.DoubleSide
         });
 
-        if (shapeType === 'line') {
-            // Draw two parallel lines offset ±3 pixels perpendicular
-            var a = anchors[0].smoothed;
-            var b = anchors[1].smoothed;
-            var dx = b.x - a.x;
-            var dy = b.y - a.y;
-            var len = Math.sqrt(dx * dx + dy * dy);
-            if (len < 0.001) return;
-            var nx = -dy / len * 3;
-            var ny = dx / len * 3;
+        for (let e = 0; e < edges.length; e++) {
+            const pA = edges[e][0];
+            const pB = edges[e][1];
 
-            for (var side = -1; side <= 1; side += 2) {
-                var points = [
-                    new THREE.Vector3(a.x + nx * side, a.y + ny * side, z),
-                    new THREE.Vector3(b.x + nx * side, b.y + ny * side, z)
-                ];
-                var geom = new THREE.BufferGeometry().setFromPoints(points);
-                this.group.add(new THREE.Line(geom, lineMat));
-            }
-        } else if (shapeType === 'triangle') {
-            // Connect 0→1→2→0
-            var points = [];
-            for (var i = 0; i < 3; i++) {
-                points.push(new THREE.Vector3(anchors[i].smoothed.x, anchors[i].smoothed.y, z));
-            }
-            points.push(new THREE.Vector3(anchors[0].smoothed.x, anchors[0].smoothed.y, z));
-            var geom = new THREE.BufferGeometry().setFromPoints(points);
-            this.group.add(new THREE.Line(geom, lineMat));
-        } else if (shapeType === 'quad') {
-            // Connect 0→1→2→3→0
-            var points = [];
-            for (var i = 0; i < 4; i++) {
-                points.push(new THREE.Vector3(anchors[i].smoothed.x, anchors[i].smoothed.y, z));
-            }
-            points.push(new THREE.Vector3(anchors[0].smoothed.x, anchors[0].smoothed.y, z));
-            var geom = new THREE.BufferGeometry().setFromPoints(points);
-            this.group.add(new THREE.Line(geom, lineMat));
+            const dx = pB.x - pA.x;
+            const dy = pB.y - pA.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 0.001) continue;
+
+            // Perpendicular direction for width
+            const nx = -dy / len * (edgeWidth / 2);
+            const ny = dx / len * (edgeWidth / 2);
+
+            // 4 vertices forming a thin rectangle
+            const positions = new Float32Array([
+                pA.x + nx, pA.y + ny, z,
+                pA.x - nx, pA.y - ny, z,
+                pB.x - nx, pB.y - ny, z,
+                pB.x + nx, pB.y + ny, z
+            ]);
+            const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geom.setIndex(new THREE.BufferAttribute(indices, 1));
+
+            const mesh = new THREE.Mesh(geom, edgeMat);
+            this.group.add(mesh);
         }
     }
 
     getShapeState() {
-        var count = this.anchors.length;
-        var type = 'none';
+        const count = this.anchors.length;
+        let type = 'none';
         if (count === 2) type = 'line';
         else if (count === 3) type = 'triangle';
         else if (count >= 4) type = 'quad';
 
-        var anchorPositions = this.anchors.map(function(a) {
-            return a.smoothed.clone();
-        });
-
-        return { type: type, anchors: anchorPositions };
+        const anchorPositions = this.anchors.map(a => a.smoothed.clone());
+        return { type, anchors: anchorPositions };
     }
 
     getAnchors() {
-        return this.anchors.map(function(a) {
-            return a.smoothed.clone();
-        });
+        return this.anchors.map(a => a.smoothed.clone());
     }
 
     getAverageDepth() {
         if (this.anchors.length === 0) return 0;
-        var sum = 0;
-        for (var i = 0; i < this.anchors.length; i++) {
+        let sum = 0;
+        for (let i = 0; i < this.anchors.length; i++) {
             sum += this.anchors[i].avgZ;
         }
         return sum / this.anchors.length;
@@ -328,26 +390,25 @@ export class ShapeManager {
 
     getShapeArea() {
         if (this.anchors.length < 3) return 0;
-        var points = this.anchors.map(function(a) { return a.smoothed; });
-        var area = 0;
-        var n = points.length;
-        for (var i = 0; i < n; i++) {
-            var j = (i + 1) % n;
+        const points = this.anchors.map(a => a.smoothed);
+        let area = 0;
+        const n = points.length;
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
             area += points[i].x * points[j].y;
             area -= points[j].x * points[i].y;
         }
         area = Math.abs(area) / 2;
-        // Normalize: assume max area ~200000 px^2
         return Math.min(1, area / 200000);
     }
 
     _createTessellationMesh(canvasWidth, canvasHeight) {
-        this._removeTessellationMesh(); // clean up any existing
+        this._removeTessellationMesh();
         this.tessellationMaterial = createTessellationMaterial();
         this.tessellationMaterial.uniforms.u_resolution.value.set(canvasWidth, canvasHeight);
-        var geom = new THREE.PlaneGeometry(2, 2);
+        const geom = new THREE.PlaneGeometry(2, 2);
         this.tessellationMesh = new THREE.Mesh(geom, this.tessellationMaterial);
-        this.tessellationMesh.renderOrder = 1.3; // above skeleton, below mandala
+        this.tessellationMesh.renderOrder = 1.3;
         this.scene.add(this.tessellationMesh);
     }
 
@@ -364,7 +425,7 @@ export class ShapeManager {
     dispose() {
         this._removeTessellationMesh();
         while (this.group.children.length) {
-            var child = this.group.children[0];
+            const child = this.group.children[0];
             this.group.remove(child);
             if (child.geometry) child.geometry.dispose();
             if (child.material) child.material.dispose();
