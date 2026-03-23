@@ -329,9 +329,23 @@ export class MusicManager {
     // --- Proximity Filter ---
 
     setProximityFilter(value) {
-        // Apply subtle filtering via chorus depth as proxy
+        // value: 0 = far (dry/bright), 1 = close (wet/dark/filtered)
+        // DRAMATIC sweep — should be very obvious
+        if (this.filter) {
+            // Sweep lowpass cutoff: 18000 Hz (far/bright) down to 300 Hz (close/muffled)
+            var cutoff = 18000 * Math.pow(0.016, value); // exponential for musical response
+            this.filter.frequency.rampTo(cutoff, 0.08);
+        }
+        if (this.reverb) {
+            // More reverb when close (0.3 far → 0.85 close)
+            this.reverb.wet.value = 0.3 + value * 0.55;
+        }
+        if (this.delay) {
+            // More delay when close (0.1 far → 0.5 close)
+            this.delay.wet.value = 0.1 + value * 0.4;
+        }
         if (this.chorus) {
-            this.chorus.depth = 0.3 + value * 0.7;
+            this.chorus.depth = 0.2 + value * 0.8;
         }
     }
 

@@ -803,15 +803,10 @@ export var Game = /*#__PURE__*/ function() {
                                     var palmSize = Math.sqrt(palmDx * palmDx + palmDy * palmDy) || 0.01;
                                     var normalizedDist = distance / palmSize;
                                     var velocity = Math.max(0.05, Math.min(1.0, normalizedDist * 1.5));
-                                    // Compute average Z depth for wetness/proximity effect
-                                    var avgZ = 0;
-                                    for (var zi = 0; zi < smoothedLandmarks.length; zi++) {
-                                        avgZ += smoothedLandmarks[zi].z;
-                                    }
-                                    avgZ /= smoothedLandmarks.length;
-                                    // Map z: closer (more negative) = more wet, farther = drier
-                                    // Typical range: -0.15 (close) to 0 (far)
-                                    var proximity = Math.max(0, Math.min(1, (avgZ + 0.15) / -0.15));
+                                    // Proximity = how close the hand is to camera
+                                    // Use apparent palm size as proxy (bigger = closer)
+                                    // palmSize is in normalized coords (0-1), typical range 0.03 (far) to 0.2 (close)
+                                    var proximity = Math.max(0, Math.min(1, (palmSize - 0.03) / 0.12));
                                     if (_this1.musicManager.setProximityFilter) {
                                         _this1.musicManager.setProximityFilter(proximity);
                                     }
